@@ -11,6 +11,13 @@ from lupa import LuaRuntime
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "DoesItDie", "DoesItDie.lua")
 src = open(SRC, encoding="utf-8").read()
+# The files before DoesItDie.lua in the .toc (Locale.lua and the languages) put ns.locale on the namespace the
+# chunks below use.
+TOC = [line.strip() for line in open(os.path.join(os.path.dirname(SRC), "DoesItDie.toc"), encoding="utf-8")]
+LOCALE_PRELUDE = "local ns = {}\n" + "".join(
+    ";(function(...)\n" + open(os.path.join(os.path.dirname(SRC), name), encoding="utf-8").read()
+    + "\nend)(\"DoesItDie\", ns)\n"
+    for name in TOC[:TOC.index("DoesItDie.lua")] if name.endswith(".lua"))
 
 
 def chunk(start_marker, end_marker):
@@ -18,7 +25,7 @@ def chunk(start_marker, end_marker):
     return src[start:src.index(end_marker, start)]
 
 
-HARNESS = """
+HARNESS = LOCALE_PRELUDE + """
 now = 100
 log = {}
 db = { ticks = {}, waitFirstTick = "off" }
@@ -34,6 +41,11 @@ local SPELLS = {
     [4] = { "Rip", "Finishing move that causes damage over time. 1 point : 42 damage over 12 sec. 2 points: 71 damage over 12 sec. 5 points: 138 damage over 12 sec." },
     [5] = { "Rend", "Wounds the target causing them to bleed for 45 damage over 9 sec." },
     [6] = { "Bane of Agony", "Afflicts the target with agony, causing 72 Shadow damage over 24 sec.  This damage is dealt slowly at first, and builds up as the Bane reaches its full duration." },
+    -- A German client (Classic Era deDE wording): names and descriptions both German.
+    [7] = { "Krallenhieb", "Attackiert das Ziel mit Krallen, fügt 19 Punkt(e) Schaden sowie 39 Punkt(e) zusätzlichen Schaden im Verlauf von 9 Sek. zu. Gewährt 1 Combopunkt." },
+    [8] = { "Zerfetzen", "Finishing-Move, der Schaden im Lauf der Zeit verursacht. Der Schaden erhöht sich pro Combopunkt sowie durch Eure Angriffskraft:\\n   1 Punkt: 42 Schaden im Verlauf von 12 Sek.\\n   2 Punkte: 66 Schaden im Verlauf von 12 Sek.\\n   5 Punkte: 138 Schaden im Verlauf von 12 Sek." },
+    [9] = { "Fluch der Pein", "Verflucht das Ziel mit Pein und fügt 24 Sek. lang 72 Punkt(e) Schattenschaden zu. Zuerst wird der Schaden langsam zugefügt und nimmt dann zu, bis der Fluch seine Gesamtdauer erreicht hat." },
+    [10] = { "Feuerregen", "Lässt einen feurigen Regen niedergehen, der 8 Sek. lang Feinde im Wirkungsbereich mit 168 Punkt(en) Feuerschaden verbrennt." },
 }
 local function spellNameAndDescription(id) return SPELLS[id][1], SPELLS[id][2] end
 """ + chunk("local UPDATE_INTERVAL", "-- User options") + chunk(
@@ -132,6 +144,26 @@ check("  no relearn or unmatched hits", ("RELEARN" in log) or ("not matched" in 
 check("  learned the average tick (6)", float(sim.learned(6)), 6.0)
 sim.advance(3.0); sim.cast(6)
 check("  next cast starts from the learned average: 72", sim.marker(), "72 dmg from 1 DoT(s)")
+
+# The same ramp on a German client: "Fluch der Pein" must get Agony's 2s ticks and shape from the name tables.
+sim.reset(); sim.cast(9)
+check("German: Fluch der Pein estimate at cast is the full 72", sim.marker(), "72 dmg from 1 DoT(s)")
+for amount in (3, 3, 3, 3, 6, 6, 6, 6, 9, 9, 9, 9):
+    sim.advance(2.0); sim.hit(amount, 32)
+log = sim.log()
+check("  all 12 ticks matched", log.count("TICK Fluch der Pein"), 12)
+check("  no relearn or unmatched hits", ("RELEARN" in log) or ("not matched" in log), False)
+
+# German builders count combo points ("Gewährt 1 Combopunkt"), and the German finisher reads its point table.
+sim.reset(); sim.cast(7); sim.advance(0.05); sim.hit(19, 1)
+sim.advance(1); sim.cast(7); sim.advance(0.05); sim.hit(19, 1)
+check("German: two Krallenhieb, 2 combo points", sim.counted(), 2)
+sim.advance(1); sim.cast(8)
+check("  Zerfetzen uses the counted 2 points: 66 over 12s, every 2s",
+      "2 combo points (counted): 66 dmg over 12s, school 1, tick every 2s" in sim.log(), True)
+
+sim.reset(); sim.cast(10)
+check("German: Feuerregen (Rain of Fire) is ignored", sim.marker(), "0 dmg from 0 DoT(s)")
 
 # Replay of the in-game miss (log 99223.7): 2-point Rip missed, white hits of 20-22 kept landing near tick
 # times. Previously a white hit at +2.6s "proved" the Rip and brought it back.

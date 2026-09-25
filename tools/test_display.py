@@ -46,6 +46,7 @@ GameFontNormalSmall = mock("font")
 function CreateColor(...) return { ... } end
 db = { dotColors = "single", segmentDividers = true, fillOpacity = 50, smoothMotion = false, showMarkers = true,
        showLabel = true }
+local ADDON_NAME = "DoesItDie"
 local function isSecret() return false end
 local function trace() end
 """
