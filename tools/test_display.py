@@ -7,7 +7,7 @@ the per-DoT segment logic: running totals, visibility, dividers, colors and the 
 import os
 import sys
 
-from lupa import LuaRuntime
+from lupa.lua51 import LuaRuntime  # WoW runs Lua 5.1
 
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "DoesItDie", "DoesItDie.lua"),
            encoding="utf-8").read()

@@ -111,6 +111,7 @@ local DEFAULTS = {
     debug = false,
     -- Accuracy
     waitFirstTick = "off",
+    estimateDuringCast = true,
     -- Nameplates (Nameplates.lua): their own look, since enemy plates are red. Defaults read well on red.
     nameplateMode = "markerIcon",
     nameplateIconSize = 18,
@@ -438,6 +439,28 @@ local function comboPointsForCast()
     return points, source
 end
 
+-- A DoT as it stands the moment it's applied, before any tick.
+local function newDot(spellID, tickKey, name, total, school, duration, statedInterval, now)
+    local interval = statedInterval or KNOWN_TICK_INTERVALS[name] or DEFAULT_TICK_INTERVAL
+    return {
+        spellID = spellID,
+        tickKey = tickKey,
+        school = SCHOOL_BY_NAME[name] or school,
+        total = total,
+        duration = duration,
+        interval = interval,
+        totalTicks = math.max(1, math.floor(duration / interval + 0.5)),
+        shape = TICK_SHAPES[name],
+        appliedAt = now,
+        expiresAt = now + duration,
+        nextTickAt = now + interval,
+        tickSum = 0,        -- non-crit ticks only
+        normalTicks = 0,
+        ticksSeen = 0,      -- including crits
+        missed = 0,
+    }
+end
+
 -- Returns the target key the DoT was applied to, or nil if the cast wasn't a tracked DoT.
 local function onPlayerCast(spellID)
     local ok, name, desc = pcall(spellNameAndDescription, spellID)
@@ -461,28 +484,10 @@ local function onPlayerCast(spellID)
     if not key then return end
 
     local now = GetTime()
-    local interval = statedInterval or KNOWN_TICK_INTERVALS[name] or DEFAULT_TICK_INTERVAL
-    school = SCHOOL_BY_NAME[name] or school
     dotsByTarget[key] = dotsByTarget[key] or {}
     local previous = dotsByTarget[key][name]
-    dotsByTarget[key][name] = {
-        spellID = spellID,
-        tickKey = tickKey,
-        school = school,
-        total = total,
-        duration = duration,
-        interval = interval,
-        totalTicks = math.max(1, math.floor(duration / interval + 0.5)),
-        shape = TICK_SHAPES[name],
-        appliedAt = now,
-        expiresAt = now + duration,
-        nextTickAt = now + interval,
-        tickSum = 0,        -- non-crit ticks only
-        normalTicks = 0,
-        ticksSeen = 0,      -- including crits
-        missed = 0,
-    }
-    local dot = dotsByTarget[key][name]
+    local dot = newDot(spellID, tickKey, name, total, school, duration, statedInterval, now)
+    dotsByTarget[key][name] = dot
     lastDotCast = { key = key, name = name, dot = dot, previous = previous, at = now }
     local learned = tickKey and db.ticks[tickKey]
     -- The starting estimate is shaky without a learned tick size (description numbers leave out spell power
@@ -490,7 +495,7 @@ local function onPlayerCast(spellID)
     dot.unsure = not learned
     trace(string.format("CAST %s (id %d)%s: %d dmg over %ss, school %d, tick every %ss, per-tick %s%s", name, spellID,
         isFinisher and string.format(" %s combo points (%s)", comboPoints or "?", comboSource) or "",
-        total, duration, school, interval, learned and ("learned " .. learned) or "from description",
+        total, duration, dot.school, dot.interval, learned and ("learned " .. learned) or "from description",
         isWaiting(dot) and ", waiting for first tick" or ""))
     local avoided = avoidJustBefore()
     if avoided then
@@ -499,6 +504,66 @@ local function onPlayerCast(spellID)
         return nil
     end
     return key, isWaiting(dot)
+end
+
+-- "Estimate during casting": a DoT with a cast time shows from UNIT_SPELLCAST_START, with the estimate its
+-- cast would make. It's kept out of dotsByTarget, so ticks never match it and housekeeping leaves it alone,
+-- and it stands in for a DoT of the same name that the cast would refresh (replaces, never adds). On success
+-- onPlayerCast takes over exactly as without it. A failed or interrupted cast, or a target change, just drops
+-- it, so a DoT it was about to refresh keeps ticking as if nothing happened. STOP ends every cast, successful
+-- or not, and may come just before SUCCEEDED, so a stopped cast is only dropped if no success follows shortly.
+local CAST_STOP_GRACE = 0.5
+local CAST_MAX_SECONDS = 15 -- a lost end event never leaves an estimate behind
+local castInProgress -- { key, name, dot, castGUID, spellID, startedAt, stoppedAt }
+
+-- Whether an event's castGUID (or, when either GUID is unreadable, its spell ID) is the cast in progress.
+local function sameCast(cast, castGUID, spellID)
+    if cast.castGUID and castGUID ~= nil and not isSecret(castGUID) then return castGUID == cast.castGUID end
+    return not isSecret(spellID) and spellID == cast.spellID
+end
+
+local function dropCastInProgress(reason)
+    if not castInProgress then return end
+    trace("CASTING " .. castInProgress.name .. " " .. reason .. "; estimate removed")
+    castInProgress = nil
+end
+
+-- UNIT_SPELLCAST_START (player). Returns the target key when a DoT now shows for the cast.
+local function onCastStart(castGUID, spellID)
+    castInProgress = nil
+    if not db.estimateDuringCast or isSecret(spellID) then return end
+    local ok, name, desc = pcall(spellNameAndDescription, spellID)
+    if not ok or not name or isSecret(name) or IGNORED_SPELLS[name] or isFinisherDescription(desc) then return end
+    local total, school, duration, statedInterval = parseDot(desc, 1)
+    if not total then return end
+    local key = unitKey("target")
+    if not key then return end
+    local now = GetTime()
+    local dot = newDot(spellID, spellID, name, total, school, duration, statedInterval, now)
+    local learned = db.ticks[spellID]
+    dot.unsure = not learned
+    dot.provisional = true
+    castInProgress = { key = key, name = name, dot = dot, spellID = spellID, startedAt = now,
+        castGUID = not isSecret(castGUID) and castGUID or nil }
+    trace(string.format("CASTING %s (id %d): %d dmg over %ss, per-tick %s%s", name, spellID, total, duration,
+        learned and ("learned " .. learned) or "from description", isWaiting(dot) and ", waiting for first tick" or ""))
+    return key
+end
+
+-- UNIT_SPELLCAST_SUCCEEDED (player), just before onPlayerCast: the cast's own DoT replaces the estimate.
+local function onCastSucceeded(castGUID, spellID)
+    if castInProgress and sameCast(castInProgress, castGUID, spellID) then castInProgress = nil end
+end
+
+-- UNIT_SPELLCAST_STOP / FAILED / INTERRUPTED (player). Returns true when the estimate was removed.
+local function onCastEnded(event, castGUID, spellID)
+    if not castInProgress or not sameCast(castInProgress, castGUID, spellID) then return end
+    if event == "UNIT_SPELLCAST_STOP" then
+        castInProgress.stoppedAt = castInProgress.stoppedAt or GetTime()
+        return
+    end
+    dropCastInProgress(event == "UNIT_SPELLCAST_INTERRUPTED" and "interrupted" or "failed")
+    return true
 end
 
 -- Seconds between now and the nearest expected tick time, and that tick's index. Anchored on the first tick
@@ -690,6 +755,13 @@ local function housekeep(now)
         end
         if next(dots) == nil then dotsByTarget[key] = nil end
     end
+    if castInProgress then
+        if castInProgress.stoppedAt and now - castInProgress.stoppedAt > CAST_STOP_GRACE then
+            dropCastInProgress("stopped without succeeding")
+        elseif now - castInProgress.startedAt > CAST_MAX_SECONDS then
+            dropCastInProgress("never finished")
+        end
+    end
 end
 
 local function remainingDamage(dot)
@@ -704,16 +776,21 @@ local function remainingDamage(dot)
 end
 
 -- Remaining damage per DoT on a mob (by unitKey), oldest application first. DoTs still waiting for their first
--- tick are left out.
+-- tick are left out. A DoT being cast on the mob replaces the one of the same name it would refresh.
 local function dotBreakdown(key)
     local dots = key and dotsByTarget[key]
+    local cast = key and castInProgress and castInProgress.key == key and castInProgress or nil
     local list = {}
-    if not dots then return list end
-    for name, dot in pairs(dots) do
-        if not isWaiting(dot) then
+    if not dots and not cast then return list end
+    for name, dot in pairs(dots or {}) do
+        if not isWaiting(dot) and not (cast and name == cast.name) then
             table.insert(list, { name = name, school = dot.school, appliedAt = dot.appliedAt,
                 damage = remainingDamage(dot) })
         end
+    end
+    if cast and not isWaiting(cast.dot) then
+        table.insert(list, { name = cast.name, school = cast.dot.school, appliedAt = cast.dot.appliedAt,
+            damage = remainingDamage(cast.dot), provisional = true })
     end
     table.sort(list, function(a, b) return a.appliedAt < b.appliedAt end)
     return list
@@ -1657,6 +1734,11 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 frame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")   -- combo points, before a finisher spends them
+-- Estimate during casting: DoTs with a cast time show from the cast's start until it ends.
+frame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+frame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
+frame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
+frame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
 frame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")   -- keeps a recent combo point reading as backup
 frame:RegisterEvent("UNIT_COMBAT")
 -- Never register COMBAT_LOG_EVENT_UNFILTERED: Forever forbids it and shows a "blocked" popup.
@@ -1689,6 +1771,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         dotsByTarget.target = nil -- only used when the target's GUID is secret
         resetComboCount() -- combo points belong to the target they were built on
         forgetPendingOutcomes()
+        dropCastInProgress("target changed")
         lastTracedDamage = nil
         trace("TARGET changed to " .. (unitKey("target") or "none"))
         safeRefresh()
@@ -1701,8 +1784,18 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local _, powerType = ...
         if not isSecret(powerType) and powerType == "COMBO_POINTS" then rememberComboPoints() end
 
+    elseif event == "UNIT_SPELLCAST_START" then
+        local _, castGUID, spellID = ...
+        if onCastStart(castGUID, spellID) then safeRefresh() end
+
+    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
+        or event == "UNIT_SPELLCAST_INTERRUPTED" then
+        local _, castGUID, spellID = ...
+        if onCastEnded(event, castGUID, spellID) then safeRefresh() end
+
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local _, _, spellID = ...
+        local _, castGUID, spellID = ...
+        onCastSucceeded(castGUID, spellID)
         local appliedTo, waiting = onPlayerCast(spellID)
         safeRefresh()
         -- A DoT waiting for its first tick isn't drawn yet; it flashes when that tick lands instead.

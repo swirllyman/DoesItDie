@@ -12,7 +12,7 @@ visual ones.
 import os
 import sys
 
-from lupa import LuaRuntime
+from lupa.lua51 import LuaRuntime  # WoW runs Lua 5.1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ADDON = os.path.join(HERE, "..", "DoesItDie")
@@ -116,11 +116,13 @@ C_Timer = {
         return ticker
     end,
 }
+local SPELLS = {
+    [172] = { "Corruption", "Corrupts the target, causing 40 Shadow damage over 12 sec." },
+    [348] = { "Immolate", "Burns the enemy for 11 Fire damage and then an additional 20 Fire damage over 15 sec." },
+}
 C_Spell = {
-    GetSpellName = function(id) return id == 172 and "Corruption" or "Spell" end,
-    GetSpellDescription = function(id)
-        return id == 172 and "Corrupts the target, causing 40 Shadow damage over 12 sec." or ""
-    end,
+    GetSpellName = function(id) return SPELLS[id] and SPELLS[id][1] or "Spell" end,
+    GetSpellDescription = function(id) return SPELLS[id] and SPELLS[id][2] or "" end,
 }
 Enum = { PowerType = { ComboPoints = 4 } }
 function GetTime() return now end
@@ -147,13 +149,13 @@ function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function strlower(s) return string.lower(s) end
 function strtrim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 function date() return "12:00:00" end
-function unpack(t) return table.unpack(t) end
+unpack = unpack or table.unpack
 """
 
 HELPERS = r"""
 local H = {}
 function H.load(path, src, ns)
-    local fn, err = load(src, "@" .. path)
+    local fn, err = (loadstring or load)(src, "@" .. path)
     if not fn then error(err) end
     fn("DoesItDie", ns)
 end
@@ -375,6 +377,42 @@ check("  marker filled to Corruption's 40", markers[0].value if markers else Non
 check("  marker shown", markers[0].shown if markers else None, True)
 icon_windows = [f for f in plate_children("Frame") if f.clips]  # the clipped kill icon window
 check("  kill icon window shown", icon_windows[0].shown if icon_windows else None, True)
+
+
+def fire_and_update(event, *args):
+    def run():
+        H.fire(event, "player", *args)
+        H.update(0.2)
+    return run
+
+
+step("start casting Immolate (cast time) on it", fire_and_update("UNIT_SPELLCAST_START", "cast-2", 348))
+check("  nameplate marker counts it while casting: 40 + 20", markers[0].value if markers else None, 60)
+step("the cast is interrupted", fire_and_update("UNIT_SPELLCAST_INTERRUPTED", "cast-2", 348))
+check("  back to Corruption alone", markers[0].value if markers else None, 40)
+
+
+def set_estimate(on):
+    def run():
+        H.clickText("Behavior")
+        box = H.rowWidget("Estimate during casting", "CheckButton")
+        box.checked = on
+        box.scripts.OnClick(box)
+    return run
+
+
+step("untick Estimate during casting", set_estimate(False))
+check("  setting off", G.DoesItDieDB.estimateDuringCast, False)
+step("start casting Immolate with it off", fire_and_update("UNIT_SPELLCAST_START", "cast-3", 348))
+check("  nothing added while casting", markers[0].value if markers else None, 40)
+step("  and interrupted", fire_and_update("UNIT_SPELLCAST_INTERRUPTED", "cast-3", 348))
+step("tick it again", set_estimate(True))
+check("  setting on", G.DoesItDieDB.estimateDuringCast, True)
+step("cast Immolate again", fire_and_update("UNIT_SPELLCAST_START", "cast-4", 348))
+step("  it lands (SUCCEEDED, then STOP)", lambda: (H.fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-4", 348),
+                                                   H.fire("UNIT_SPELLCAST_STOP", "player", "cast-4", 348),
+                                                   H.update(1.0)))
+check("  counted once: 40 + 20", markers[0].value if markers else None, 60)
 
 
 def plates_off():

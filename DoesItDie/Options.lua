@@ -582,6 +582,9 @@ local function buildTabs()
     behavior:choice("waitFirstTick", "Wait for first tick", lists.waitModes, { tooltip = "Whether a new DoT "
         .. "counts before its first tick lands. \"When unsure\" waits for finishers with unknown combo points "
         .. "and spells the addon hasn't seen tick yet." })
+    behavior:checkbox("estimateDuringCast", "Estimate during casting", { tooltip = "Shows a DoT with a cast time "
+        .. "while you're still casting it. Once the cast lands the normal estimate takes over; an interrupted or "
+        .. "failed cast removes it." })
     behavior:checkbox("debug", "Echo trace log to chat",
         { tooltip = "Prints each DoT cast, matched tick and estimate to chat." })
     behavior:action("Learned tick sizes", "Reset", function() ns.resetLearnedTicks() end,
