@@ -53,8 +53,55 @@ local function call(fn, ...)
     return describe(pcall(fn, ...))
 end
 
--- Blizzard's health bar inside a nameplate, and the path it was found under.
-local function findHealthBar(plate)
+-- Platynator hides Blizzard's UnitFrame and draws its own display frames (40 per style, preallocated),
+-- parented to "NamePlate<i>" or, when that doesn't exist yet at creation (as in Forever), to UIParent. The
+-- active one for a unit is shown with .unit = the nameplate unit token; its .widgets list holds the health
+-- widget (details.kind == "health") with the real StatusBar in .statusBar. Displays are found by scanning
+-- UIParent's and the plate's children, cached, and rescanned (throttled) when a unit has none.
+local platyDisplays = {}
+local platyLastScan = -math.huge
+local PLATY_RESCAN_INTERVAL = 2
+
+local function isPlatyDisplay(frame)
+    return type(frame.widgets) == "table" and type(frame.Install) == "function" and type(frame.SetUnit) == "function"
+end
+
+local function scanPlatyDisplays(plate)
+    for _, parent in ipairs({ UIParent, plate }) do
+        for _, child in ipairs({ parent:GetChildren() }) do
+            if not platyDisplays[child] and isPlatyDisplay(child) then platyDisplays[child] = true end
+        end
+    end
+end
+
+local function platyBarFor(unit)
+    for display in pairs(platyDisplays) do
+        if display.unit == unit and display:IsShown() and type(display.widgets) == "table" then
+            for _, widget in ipairs(display.widgets) do
+                if type(widget.details) == "table" and widget.details.kind == "health" and widget.statusBar then
+                    return widget.statusBar
+                end
+            end
+        end
+    end
+end
+
+local function findPlatynatorBar(plate, unit)
+    if not (Platynator and unit) then return nil end
+    local bar = platyBarFor(unit)
+    if bar then return bar end
+    local now = GetTime()
+    if now - platyLastScan < PLATY_RESCAN_INTERVAL then return nil end
+    platyLastScan = now
+    scanPlatyDisplays(plate)
+    return platyBarFor(unit)
+end
+
+-- The health bar of a nameplate (Platynator's if it's drawing the plate, else Blizzard's), and the path
+-- it was found under.
+local function findHealthBar(plate, unit)
+    local ok, platyBar = pcall(findPlatynatorBar, plate, unit)
+    if ok and platyBar then return platyBar, "Platynator health widget" end
     local unitFrame = plate.UnitFrame
     if not unitFrame then return nil, "no UnitFrame" end
     if unitFrame.healthBar then return unitFrame.healthBar, "UnitFrame.healthBar" end
@@ -82,12 +129,33 @@ local function invisibleBar(parent)
     return bar
 end
 
+-- Anchors the widgets to a health bar and layers them above it (same strata: Platynator's bars are MEDIUM,
+-- above the plate's own). Its level/strata can be secret in Forever; then use fixed ones.
+local function attachWidgets(w, healthBar)
+    w.healthBar = healthBar
+    w.signature = nil -- the icon position is anchored to the bar in applyStyle
+    w.marker:ClearAllPoints()
+    w.marker:SetAllPoints(healthBar)
+
+    local okStrata, strata = pcall(healthBar.GetFrameStrata, healthBar)
+    if okStrata and type(strata) == "string" and not isSecret(strata) then
+        w.marker:SetFrameStrata(strata)
+        w.iconWindow:SetFrameStrata(strata)
+        w.iconBar:SetFrameStrata(strata)
+    end
+    local ok, level = pcall(healthBar.GetFrameLevel, healthBar)
+    if not ok or isSecret(level) or type(level) ~= "number" then level = FALLBACK_LEVEL end
+    -- The icon sits well above: plate decorations beside the bar (the level badge) must not cover it.
+    w.marker:SetFrameLevel(level + 5)
+    w.iconWindow:SetFrameLevel(level + 20)
+    w.iconBar:SetFrameLevel(level + 21)
+end
+
 local function createWidgets(plate, healthBar)
-    local w = { healthBar = healthBar }
+    local w = {}
 
     -- Marker: filled from the bar's left edge to the remaining DoT damage, on the mob's (secret) health scale.
     w.marker = invisibleBar(plate)
-    w.marker:SetAllPoints(healthBar)
     w.span = w.marker:GetStatusBarTexture()
     w.fill = w.marker:CreateTexture(nil, "ARTWORK")
     coverSpan(w.fill, w.span)
@@ -127,14 +195,7 @@ local function createWidgets(plate, healthBar)
     w.icon = w.iconBar:CreateTexture(nil, "OVERLAY")
     w.icon:SetPoint("RIGHT", w.iconBar:GetStatusBarTexture(), "RIGHT")
 
-    -- Above the plate's health bar. Its level can be secret in Forever; then use a fixed high level.
-    local ok, level = pcall(healthBar.GetFrameLevel, healthBar)
-    if not ok or isSecret(level) or type(level) ~= "number" then level = FALLBACK_LEVEL end
-    -- The icon sits well above: plate decorations beside the bar (the level badge) must not cover it.
-    w.marker:SetFrameLevel(level + 5)
-    w.iconWindow:SetFrameLevel(level + 20)
-    w.iconBar:SetFrameLevel(level + 21)
-
+    attachWidgets(w, healthBar)
     widgetsByPlate[plate] = w
     return w
 end
@@ -250,7 +311,11 @@ end
 
 local function widgetsFor(plate, healthBar)
     local w = widgetsByPlate[plate]
-    if not w or w.healthBar ~= healthBar then w = createWidgets(plate, healthBar) end
+    if not w then
+        w = createWidgets(plate, healthBar)
+    elseif w.healthBar ~= healthBar then
+        attachWidgets(w, healthBar) -- e.g. Platynator switched the plate's style
+    end
     return w
 end
 
@@ -261,7 +326,7 @@ local function updatePlate(unit, plate, db)
         if w then hideWidgets(w) end
         return
     end
-    local healthBar = findHealthBar(plate)
+    local healthBar = findHealthBar(plate, unit)
     if not healthBar then return end
     drawPlate(widgetsFor(plate, healthBar), entries, total, UnitHealthMax(unit), UnitHealth(unit), db)
 end
@@ -382,10 +447,29 @@ local function probePlate(unit, index)
     table.insert(parts, "forbidden=" .. tostring(forbidden))
     if forbidden then return table.concat(parts, " "), false end
 
-    local healthBar, path = findHealthBar(plate)
+    local healthBar, path = findHealthBar(plate, unit)
     table.insert(parts, "healthBar=" .. path)
     if healthBar then
         table.insert(parts, "barForbidden=" .. tostring(healthBar.IsForbidden and healthBar:IsForbidden() or false))
+        table.insert(parts, "barRect=" .. call(healthBar.GetRect, healthBar))
+        table.insert(parts, "barScale=" .. call(healthBar.GetEffectiveScale, healthBar))
+    end
+    -- Platynator: which display frames we know of, and which unit each shows.
+    if Platynator then
+        pcall(scanPlatyDisplays, plate)
+        local known, units = 0, {}
+        for display in pairs(platyDisplays) do
+            known = known + 1
+            if display.unit then table.insert(units, tostring(display.unit) .. (display:IsShown() and "" or "(hidden)")) end
+        end
+        table.insert(parts, "platyDisplays=" .. known .. " units=" .. table.concat(units, ","))
+        local childCount = select("#", plate:GetChildren())
+        table.insert(parts, "plateChildren=" .. childCount)
+    end
+    local w = widgetsByPlate[plate]
+    if w then
+        table.insert(parts, "markerRect=" .. call(w.marker.GetRect, w.marker))
+        table.insert(parts, "markerOnBar=" .. tostring(w.healthBar == healthBar))
     end
 
     local bar = testBar(index)
