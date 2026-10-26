@@ -219,6 +219,16 @@ local function searchHealthBar(plate)
     end
 end
 
+-- Threat Plates: its plate frame hangs off WorldFrame, not the plate (so the search above never reaches it), and
+-- the plate only references it: plate.TPFrame, active while Threat Plates draws this unit, with the bar at
+-- .visual.Healthbar (.healthbar in older versions).
+local function findThreatPlatesBar(plate)
+    local tp = plate.TPFrame
+    if type(tp) ~= "table" or not tp.Active or type(tp.visual) ~= "table" then return nil end
+    local bar = tp.visual.Healthbar or tp.visual.healthbar
+    if isStatusBar(bar) and not forbidden(bar) and barShown(bar) then return bar end
+end
+
 local function autoHealthBar(plate)
     local cached = searchCache[plate]
     local now = GetTime()
@@ -238,6 +248,7 @@ end
 --     on that frame so they fade, scale and hide with it.
 --   * Platynator: its displays aren't tied to one plate (they're reassigned between units, and may hang off
 --     UIParent), so our widgets stay on Blizzard's plate and only anchor to its bar.
+--   * Threat Plates (findThreatPlatesBar): the same, its plate frame hangs off WorldFrame.
 --   * Blizzard's own bar, while it's shown
 --   * the automatic search (searchHealthBar), for other plate addons
 --   * Blizzard's bar, hidden: only the kill icon is drawn, beside the plate (iconOnly)
@@ -255,6 +266,8 @@ local function findHealthBar(plate, unit)
     end
     local ok, platyBar = pcall(findPlatynatorBar, plate, unit)
     if ok and platyBar then return platyBar, plate, "Platynator health widget", true end
+    local tpOk, tpBar = pcall(findThreatPlatesBar, plate)
+    if tpOk and tpBar then return tpBar, plate, "Threat Plates TPFrame.visual.Healthbar", true end
 
     local unitFrame = plate.UnitFrame
     local blizzard, blizzardPath

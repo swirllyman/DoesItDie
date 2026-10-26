@@ -1001,17 +1001,34 @@ def isolated_search():
 
 check("  the search itself, run in isolation, gets past the throwing field", isolated_search(), "unitFrame.healthBar")
 
-# Threat Plates keeps its bar in a plain table: TPFrame.visual.healthbar.
+# A bar kept in a plain table: mine.visual.healthbar.
 lua.execute("""
     PlaterBar:Hide(); FakePlate.unitFrame = nil
-    FakePlate.TPFrame = CreateFrame("Frame", nil, FakePlate)
-    FakePlate.TPFrame.visual = {}
-    FakePlate.TPFrame.visual.healthbar = CreateFrame("StatusBar", nil, FakePlate.TPFrame)
-    ThreatBar = FakePlate.TPFrame.visual.healthbar
+    FakePlate.mine = CreateFrame("Frame", nil, FakePlate)
+    FakePlate.mine.visual = {}
+    FakePlate.mine.visual.healthbar = CreateFrame("StatusBar", nil, FakePlate.mine)
+    TableBar = FakePlate.mine.visual.healthbar
 """)
-step("Threat Plates-like plate", fresh_search)
-check("  its bar found through the plain table", ns.plateBarStatus(), "found: TPFrame.visual.healthbar")
+step("a bar in a plain table", fresh_search)
+check("  found through the plain table", ns.plateBarStatus(), "found: mine.visual.healthbar")
+check("  marker on it", len(markers_on(G.TableBar)), 1)
+
+# Threat Plates, as its source builds it: the plate frame hangs off WorldFrame (not the plate), referenced as
+# plate.TPFrame, active while drawing the unit, bar at .visual.Healthbar. The search can't reach it.
+lua.execute("""
+    TableBar:Hide(); FakePlate.mine = nil
+    FakePlate.TPFrame = CreateFrame("Frame", "ThreatPlatesFrameNamePlate1", nil)
+    FakePlate.TPFrame.Parent, FakePlate.TPFrame.Active = FakePlate, true
+    FakePlate.TPFrame.visual = {}
+    FakePlate.TPFrame.visual.Healthbar = CreateFrame("StatusBar", nil, FakePlate.TPFrame)
+    ThreatBar = FakePlate.TPFrame.visual.Healthbar
+""")
+step("Threat Plates plate (Corruption recast: the steps above outlast it)", lambda: (plate_cast(), fresh_search()))
+check("  its bar found", ns.plateBarStatus(), "Threat Plates TPFrame.visual.Healthbar")
 check("  marker on it", len(markers_on(G.ThreatBar)), 1)
+lua.execute("FakePlate.TPFrame.Active = false")
+step("Threat Plates not drawing this unit", fresh_search)
+check("  its bar not used", ns.plateBarStatus() == "Threat Plates TPFrame.visual.Healthbar", False)
 
 # Nothing readable and Blizzard's bar hidden: the kill icon alone, beside the plate (as before v0.7.0).
 lua.execute("ThreatBar:Hide(); FakePlate.TPFrame, FakePlate.aaaBomb = nil, nil")

@@ -1,5 +1,9 @@
 # DoesItDie
 
+## Unreleased
+
+- **Threat Plates:** the nameplate marker now really shows on its health bar (v0.8.2's fix looked in the wrong place). Thanks to adamkm123 and WEEDWIZARD420__.
+
 ## v0.8.3
 
 **Restart the game fully after updating** (not just /reload): this version adds new files.
