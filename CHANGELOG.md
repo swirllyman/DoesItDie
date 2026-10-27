@@ -1,8 +1,9 @@
 # DoesItDie
 
-## Unreleased
+## v0.8.4
 
-- **Threat Plates:** the nameplate marker now really shows on its health bar (v0.8.2's fix looked in the wrong place). Thanks to adamkm123 and WEEDWIZARD420__.
+- **Threat Plates:** the nameplate marker now really shows on its health bar (v0.8.2's fix looked in the wrong place). No setting needed: you can clear anything typed under Advanced > Nameplate health bar. Thanks to adamkm123 and WEEDWIZARD420__.
+- **German:** the addon's chat messages and its description in the AddOns list are in German too. Thanks to Cortexyn.
 
 ## v0.8.3
 
