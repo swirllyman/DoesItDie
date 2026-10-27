@@ -1,6 +1,7 @@
 ## Interface: 16001
 ## Title: DoesItDie
 ## Notes: Tracks your DoTs and marks the damage they still have left on your target's health bar, with a kill icon on the portrait when they'll finish it off. Fully customizable look (/did).
+## Notes-deDE: Verfolgt deine DoTs und markiert den Schaden, den sie noch verursachen, auf der Lebensleiste deines Ziels. Auf dem Porträt erscheint ein Kill-Symbol, wenn sie es erledigen werden. Das Aussehen ist frei anpassbar (/did).
 ## IconTexture: Interface\AddOns\DoesItDie\icon
 ## Author: Joe Greive
 ## Version: @project-version@
