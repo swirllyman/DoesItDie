@@ -818,7 +818,7 @@ end
 local function applyPreset(preset)
     for key, value in pairs(preset.values) do db()[key] = value end
     changed()
-    ns.print(preset.label .. " preset applied.")
+    ns.print(string.format(T("%s preset applied."), T(preset.label)))
 end
 
 ---------------------------------------------------------------------------

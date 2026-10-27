@@ -372,6 +372,21 @@ local STRINGS = {
     ["While this window is open, the marker and kill icon are drawn here instead of on your target."] = "Solange dieses Fenster offen ist, werden Markierung und Kill-Symbol hier statt auf deinem Ziel gezeichnet.",
     ["White"] = "Weiß",
     ["Window language"] = "Fenstersprache",
+
+    -- Chat messages
+    ["%s preset applied."] = "Vorlage „%s“ angewendet.",
+    ["Couldn't create the options panel; slash commands still work (/did help)."] = "Das Optionsfenster im AddOn-Menü konnte nicht erstellt werden; die Slash-Befehle funktionieren weiterhin (/did help).",
+    ["Debug OFF."] = "Debug AUS.",
+    ["Debug ON."] = "Debug AN.",
+    ["Frame pick cancelled."] = "Fensterauswahl abgebrochen.",
+    ["Health bar markers OFF."] = "Markierungen auf der Lebensleiste AUS.",
+    ["Health bar markers ON."] = "Markierungen auf der Lebensleiste AN.",
+    ["Kill icon test for 5 seconds: one icon ON the portrait (the real one) and one ABOVE it (plain test)."] = "Kill-Symbol-Test für 5 Sekunden: ein Symbol AUF dem Porträt (das echte) und eines DARÜBER (einfacher Test).",
+    ["Learned tick sizes cleared."] = "Gelernte Tickgrößen gelöscht.",
+    ["Nothing to pick there."] = "Dort gibt es nichts zu wählen.",
+    ["Target frame health bar not found; health bar markers unavailable."] = "Lebensleiste des Zielfensters nicht gefunden; Markierungen auf der Lebensleiste nicht verfügbar.",
+    ["Target portrait not found; kill icon shown beside the target frame."] = "Zielporträt nicht gefunden; das Kill-Symbol wird neben dem Zielfenster angezeigt.",
+    ["That frame has no name to save, so it can't be found again after a reload. Try the frame around it, or type a path."] = "Dieses Fenster hat keinen Namen, der gespeichert werden könnte, und wäre nach einem Neuladen nicht wiederzufinden. Versuche das Fenster darum herum oder gib einen Pfad ein.",
 }
 
 ns.locale.register({

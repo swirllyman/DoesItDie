@@ -190,6 +190,8 @@ local warnedSecretGuid = false
 -- Helpers
 ---------------------------------------------------------------------------
 
+local T = ns.locale.T -- the addon's text in the window language (Locale.lua)
+
 local function print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cffff6666DoesItDie|r " .. msg)
 end
@@ -1145,7 +1147,7 @@ ns.trace = trace
 
 function ns.resetLearnedTicks()
     wipe(db.ticks)
-    print("Learned tick sizes cleared.")
+    print(T("Learned tick sizes cleared."))
 end
 
 function ns.forgetLearnedTick(key)
@@ -1234,9 +1236,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local ok, err = pcall(ns.registerOptions)
         if not ok then
             trace("Options panel registration failed: " .. tostring(err))
-            print("Couldn't create the options panel; slash commands still work (/did help).")
+            print(T("Couldn't create the options panel; slash commands still work (/did help)."))
         end
-        if not ns.display.attach() then print("Target portrait not found; kill icon shown beside the target frame.") end
+        if not ns.display.attach() then print(T("Target portrait not found; kill icon shown beside the target frame.")) end
         self:UnregisterEvent("ADDON_LOADED")
 
     elseif not db then
@@ -1320,9 +1322,9 @@ SlashCmdList.DOESITDIE = function(msg)
     elseif cmd == "line" then
         db.showMarkers = not db.showMarkers
         if db.showMarkers and not ns.display.hasHealthBar() then
-            print("Target frame health bar not found; health bar markers unavailable.")
+            print(T("Target frame health bar not found; health bar markers unavailable."))
         else
-            print("Health bar markers " .. (db.showMarkers and "ON" or "OFF") .. ".")
+            print(db.showMarkers and T("Health bar markers ON.") or T("Health bar markers OFF."))
         end
     elseif cmd == "plates" then
         ns.probeNameplates()
@@ -1330,13 +1332,13 @@ SlashCmdList.DOESITDIE = function(msg)
         ns.toggleExecuteProbe(tonumber(cmd:match("%d+")))
     elseif cmd == "skull" then
         ns.display.testSkull(5)
-        print("Kill icon test for 5 seconds: one icon ON the portrait (the real one) and one ABOVE it (plain test).")
+        print(T("Kill icon test for 5 seconds: one icon ON the portrait (the real one) and one ABOVE it (plain test)."))
     elseif cmd == "debug" then
         db.debug = not db.debug
-        print("Debug " .. (db.debug and "ON" or "OFF") .. ".")
+        print(db.debug and T("Debug ON.") or T("Debug OFF."))
     elseif cmd == "reset" then
         wipe(db.ticks)
-        print("Learned tick sizes cleared.")
+        print(T("Learned tick sizes cleared."))
     elseif cmd == "ticks" then
         ns.toggleTickViewer()
     else
@@ -1350,6 +1352,6 @@ SlashCmdList.DOESITDIE = function(msg)
             "/did debug - toggle echoing the trace log (casts, ticks, estimates) to chat",
             "/did ticks - show learned tick sizes",
             "/did reset - forget learned tick sizes",
-        }) do print(ns.locale.T(line)) end
+        }) do print(T(line)) end
     end
 end

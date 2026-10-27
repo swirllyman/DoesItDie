@@ -8,6 +8,7 @@
 -- left to right and whose frame is exactly the fill area works.
 
 local _, ns = ...
+local T = ns.locale.T -- the addon's text in the window language (Locale.lua)
 
 -- Blizzard's own frames answer some queries with secret values (IsMouseOver on the target frame's textures,
 -- in and out of combat): anything read from a frame we don't own is checked before use.
@@ -286,17 +287,17 @@ local function createPickFrame()
         local current = picker
         stopPicking()
         if button == "RightButton" then
-            ns.print("Frame pick cancelled.")
+            ns.print(T("Frame pick cancelled."))
             return
         end
         if not current.candidate then
-            ns.print("Nothing to pick there.")
+            ns.print(T("Nothing to pick there."))
             return
         end
         local path = ns.framePath(current.candidate)
         if not path then
-            ns.print("That frame has no name to save, so it can't be found again after a reload. Try the frame "
-                .. "around it, or type a path.")
+            ns.print(T("That frame has no name to save, so it can't be found again after a reload. Try the frame "
+                .. "around it, or type a path."))
             return
         end
         current.onPick(path)
