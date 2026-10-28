@@ -506,6 +506,42 @@ check("  nameplate marker counts it while casting: 40 + 20", markers[0].value if
 step("the cast is interrupted", fire_and_update("UNIT_SPELLCAST_INTERRUPTED", "cast-2", 348))
 check("  back to Corruption alone", markers[0].value if markers else None, 40)
 
+# Public API (API.lua): what another addon sees for the same mob.
+check("API: version", G.DoesItDie.API_VERSION, 1)
+check("API: remaining damage on the target", list(lua.eval("{DoesItDie.GetRemainingDamage('target')}").values()),
+      [40, 1])
+check("API: same mob through its nameplate", list(lua.eval("{DoesItDie.GetRemainingDamage('nameplate1')}").values()),
+      [40, 1])
+check("API: nothing on a missing unit", list(lua.eval("{DoesItDie.GetRemainingDamage('focus')}").values()), [0, 0])
+check("API: nil unit doesn't error", list(lua.eval("{DoesItDie.GetRemainingDamage(nil)}").values()), [0, 0])
+api_dots = G.DoesItDie.GetDoTs("target")
+check("API: the DoT list", [(d.name, d.spellID, d.school, d.damage, d.provisional) for d in api_dots.values()],
+      [("Corruption", 172, 32, 40, False)])
+check("API: the list has its expiry", api_dots[1].expiresAt > api_dots[1].appliedAt if len(api_dots) else None, True)
+lua.execute("""
+    apiEvents = {}
+    DoesItDie.RegisterCallback("TestAddon", function(event, unit) table.insert(apiEvents, event .. " " .. unit) end)
+    DoesItDie.RegisterCallback("Broken", function() error("consumer bug") end)
+""")
+step("API: register callbacks, run the display loop", lambda: H.update(0.2))
+check("  first run reports what's there", sorted(G.apiEvents.values()),
+      ["DOTS_CHANGED nameplate1", "DOTS_CHANGED target"])
+check("  a consumer's error is logged, not raised",
+      any("API callback error (Broken)" in line for line in G.DoesItDieDB.log.values()), True)
+step("API: nothing changed", lambda: (lua.execute("apiEvents = {}"), H.update(0.2)))
+check("  no events", len(G.apiEvents), 0)
+step("API: start casting Immolate", fire_and_update("UNIT_SPELLCAST_START", "cast-2", 348))
+check("  both units report the change", sorted(G.apiEvents.values()),
+      ["DOTS_CHANGED nameplate1", "DOTS_CHANGED target"])
+check("  the cast shows as provisional", [(d.name, d.provisional) for d in G.DoesItDie.GetDoTs("target").values()],
+      [("Corruption", False), ("Immolate", True)])
+step("API: the cast is interrupted", fire_and_update("UNIT_SPELLCAST_INTERRUPTED", "cast-2", 348))
+check("  back to 40", list(lua.eval("{DoesItDie.GetRemainingDamage('target')}").values()), [40, 1])
+lua.execute('DoesItDie.UnregisterCallback("TestAddon"); DoesItDie.UnregisterCallback("Broken"); apiEvents = {}')
+step("API: unregistered", fire_and_update("UNIT_SPELLCAST_START", "cast-2", 348))
+check("  no more events", len(G.apiEvents), 0)
+step("API: interrupt again", fire_and_update("UNIT_SPELLCAST_INTERRUPTED", "cast-2", 348))
+
 
 def set_estimate(on):
     def run():

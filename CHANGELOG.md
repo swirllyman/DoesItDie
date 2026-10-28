@@ -1,5 +1,9 @@
 # DoesItDie
 
+## Unreleased
+
+- **For addon authors:** a public API, so unit frame, nameplate and UI addons can show DoesItDie's estimate on their own frames. See API.md on GitHub. Thanks to curse-wa for the idea.
+
 ## v0.8.4
 
 - **Threat Plates:** the nameplate marker now really shows on its health bar (v0.8.2's fix looked in the wrong place). No setting needed: you can clear anything typed under Advanced > Nameplate health bar. Thanks to adamkm123 and WEEDWIZARD420__.

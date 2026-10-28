@@ -1093,13 +1093,14 @@ local function dotBreakdown(key)
     if not dots and not cast then return list end
     for name, dot in pairs(dots or {}) do
         if not isWaiting(dot) and not (cast and name == cast.name) then
-            table.insert(list, { name = name, school = dot.school, appliedAt = dot.appliedAt,
-                damage = remainingDamage(dot) })
+            table.insert(list, { name = name, spellID = dot.spellID, school = dot.school, appliedAt = dot.appliedAt,
+                expiresAt = dot.expiresAt, damage = remainingDamage(dot) })
         end
     end
     if cast and not isWaiting(cast.dot) then
-        table.insert(list, { name = cast.name, school = cast.dot.school, appliedAt = cast.dot.appliedAt,
-            damage = remainingDamage(cast.dot), provisional = true })
+        table.insert(list, { name = cast.name, spellID = cast.spellID, school = cast.dot.school,
+            appliedAt = cast.dot.appliedAt, expiresAt = cast.dot.expiresAt, damage = remainingDamage(cast.dot),
+            provisional = true })
     end
     table.sort(list, function(a, b) return a.appliedAt < b.appliedAt end)
     return list
