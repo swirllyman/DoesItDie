@@ -1,6 +1,8 @@
 # DoesItDie
 
-## Unreleased
+## v0.9.0
+
+**Restart the game fully after updating** (not just /reload): this version adds a new file.
 
 - **For addon authors:** a public API, so unit frame, nameplate and UI addons can show DoesItDie's estimate on their own frames. See API.md on GitHub. Thanks to curse-wa for the idea.
 

@@ -1,7 +1,7 @@
 # DoesItDie API
 
 For addon authors: show DoesItDie's estimate (how much damage the player's DoTs still have to deal) on your own unit
-frames or nameplates. Available from v0.8.5 when DoesItDie is installed and enabled. Add `## OptionalDeps: DoesItDie`
+frames or nameplates. Available from v0.9.0 when DoesItDie is installed and enabled. Add `## OptionalDeps: DoesItDie`
 to your `.toc` and check that the global `DoesItDie` exists before using it.
 
 ```lua
