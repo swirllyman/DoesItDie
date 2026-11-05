@@ -913,6 +913,39 @@ local function recordTick(dot, amount, isCrit, index, now)
     return anchorTick(dot, index, now), factor
 end
 
+-- Forever can hide UNIT_COMBAT's damage amount while leaving WOUND, school and unit readable. A lone DoT
+-- on its expected rhythm can still advance, using its existing estimate; never learn a size from this event.
+-- Ambiguous same-school DoTs and trap activation still require a readable amount.
+local function onSecretAmountWound(key, unit, school)
+    if isSecret(school) or type(school) ~= "number" then return end
+    local dots = dotsByTarget[key]
+    if not dots then return end
+    local now = GetTime()
+    local candidate, candidateName, candidateIndex
+    for name, dot in pairs(dots) do
+        if dot.school == school then
+            local distance, index = distanceToExpectedTick(dot, now)
+            local window = dot.firstTickAt and TICK_MATCH_WINDOW_ANCHORED or TICK_MATCH_WINDOW
+            local freshSlot = not dot.firstTickAt or index > dot.lastTickIndex
+            if freshSlot and distance <= window and now <= dot.expiresAt + window then
+                if candidate then return end
+                candidate, candidateName, candidateIndex = dot, name, index
+            end
+        end
+    end
+    if not candidate then return end
+    local wasWaiting = isWaiting(candidate)
+    local factor = tickShape(candidate, tickNumberAt(candidate, now))
+    candidate.ticksSeen = candidate.ticksSeen + 1
+    candidate.lastTickAmount, candidate.lastTickShape, candidate.lastTickCrit = 0, factor, false
+    candidate.offBeatCandidate = nil
+    local tickIndex = anchorTick(candidate, candidateIndex, now)
+    trace(string.format("TICK %s amount secret on %s (tick %d/%d, estimated %.1f for this tick)%s",
+        candidateName, unit, tickIndex, candidate.totalTicks, expectedTick(candidate) * factor,
+        wasWaiting and ", now shown" or ""))
+    if wasWaiting then return key end
+end
+
 -- An armed trap's first tick: an unmatched hit of its school and size on any mob, at least one tick interval
 -- after the trap was placed (the DoT ticks first one interval after it springs). Starts the DoT there, as tick
 -- 1. Without a learned size the description's share is only a rough guide (it may leave out attack power), so
@@ -950,7 +983,37 @@ end
 -- from the same token feeds another DoT, one from another token is a copy and is dropped (PR #14).
 local combatFrameAt
 local combatFrameHits = {}
+-- Temporary Forever diagnostic: sample the event before action/unit/secret guards discard it.
+-- Keep chat and the saved trace bounded even when several unit tokens report the same fight.
+local rawCombatSecond, rawCombatCount
+local RAW_COMBAT_PER_SECOND = 12
+local function rawCombatValue(value)
+    local ok, shown = pcall(function()
+        if isSecret(value) then return "<secret>" end
+        local kind = type(value)
+        if kind == "number" then return tostring(value) end
+        if kind == "string" then
+            -- UNIT_COMBAT fields should be short codes/tokens, never names or arbitrary text.
+            if #value <= 48 and value:match("^[%w_]*$") then return string.format("%q", value) end
+            return "<redacted>"
+        end
+        if value == nil then return "nil" end
+        return "<" .. kind .. ">"
+    end)
+    return ok and shown or "<unavailable>"
+end
+local function traceRawUnitCombat(unit, action, flag, amount, school)
+    if not db or not db.debug then return end
+    local second = math.floor(GetTime())
+    if rawCombatSecond ~= second then rawCombatSecond, rawCombatCount = second, 0 end
+    if rawCombatCount >= RAW_COMBAT_PER_SECOND then return end
+    rawCombatCount = rawCombatCount + 1
+    trace(string.format("UNIT_COMBAT raw unit=%s action=%s flag=%s amount=%s school=%s",
+        rawCombatValue(unit), rawCombatValue(action), rawCombatValue(flag),
+        rawCombatValue(amount), rawCombatValue(school)))
+end
 local function onUnitCombat(unit, action, flag, amount, school)
+    traceRawUnitCombat(unit, action, flag, amount, school)
     if isSecret(action) then return end
     -- A fully absorbed tick still landed (a shield ate it): it proves the DoT is on and keeps its rhythm, so ABSORB
     -- matches like WOUND, but a 0 never feeds tick sizes. With two DoTs it could be, it's ignored.
@@ -960,7 +1023,11 @@ local function onUnitCombat(unit, action, flag, amount, school)
     if not key then return end
     if AVOIDED_ACTIONS[action] then return onAvoided(key, action, school) end
     if action == "WOUND" or absorbed then onHit(key, school) end
-    if isSecret(amount) or isSecret(school) or type(amount) ~= "number" then return end
+    if isSecret(amount) then
+        if action == "WOUND" then return onSecretAmountWound(key, unit, school) end
+        return
+    end
+    if isSecret(school) or type(amount) ~= "number" then return end
     local isCrit = not isSecret(flag) and flag == "CRITICAL"
     if not dotsByTarget[key] and not armedTrap then return end
     local dots = dotsByTarget[key] or {}
