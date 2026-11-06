@@ -51,6 +51,8 @@ function UnitName(unit) return names[unit] or unitKey(unit) end
 -- Whether the player can attack a unit (nil: the client can't say).
 local attackable = {}
 function UnitCanAttack(_, unit) return attackable[unit] end
+local deadUnits = {}
+function UnitIsDeadOrGhost(unit) return deadUnits[unit] end
 -- Combo points: the API's reading (nil while secret), and Blizzard's display (ComboFrame, set by api.comboDisplay).
 local comboReading
 function GetComboPoints() return comboReading end
@@ -73,6 +75,9 @@ local SPELLS = {
     [13] = { "Feuerregen", "Lässt einen feurigen Regen niedergehen, der 8 Sek. lang Feinde im Wirkungsbereich mit 168 Punkt(en) Feuerschaden verbrennt." },
     [14] = { "Immolation Trap", "Place a Fire trap that will burn the first enemy to approach for 690 Fire damage over 15 sec. Trap will exist for 1 min. Only one Fire trap can be active at a time." },
     [16] = { "Shadow Word: Pain", "A word of darkness that causes 40 Shadow damage over 12 sec." },
+    [17] = { "Flame Shock", "Instantly sears the target with fire, causing 20 Fire damage immediately and 28 Fire damage over 12 sec." },
+    [18] = { "Immolation", "Brûle l’ennemi et lui inflige 22 points de dégâts de feu, puis 32 points supplémentaires de dégâts de feu en 15 sec." },
+    [19] = { "Feuerbrand", "Verbrennt den Gegner und fügt ihm 11 Feuerschaden sowie im Verlauf von 15 Sek. insgesamt 20 zusätzlichen Feuerschaden zu." },
     [15] = { "Explosive Trap", "Place a Fire trap that explodes when an enemy approaches, causing 201 to 257 Fire damage and 330 additional Fire damage over 20 sec to all within 10 yards. Trap will exist for 1 min. Only one Fire trap can be active at a time." },
 }
 local function spellNameAndDescription(id) return SPELLS[id][1], SPELLS[id][2] end
@@ -82,7 +87,7 @@ local api = {}
 function api.reset(waitMode, estimateDuringCast)
     for k in pairs(dotsByTarget) do dotsByTarget[k] = nil end
     for k in pairs(db.ticks) do db.ticks[k] = nil end
-    if combatTally then for k in pairs(combatTally) do combatTally[k] = nil end end
+    if takeCombatTally then takeCombatTally() end
     db.tickWeights = nil
     db.waitFirstTick = waitMode or "off"
     lastBuilder, lastDotCast, lastOutcome, armedTrap = nil, nil, nil, nil
@@ -90,7 +95,7 @@ function api.reset(waitMode, estimateDuringCast)
     db.estimateDuringCast = estimateDuringCast ~= false
     if dropCastInProgress then dropCastInProgress("reset") end
     resetComboCount()
-    targetKey, plates, names, attackable, comboReading = "mob", {}, {}, {}, nil
+    targetKey, plates, names, attackable, deadUnits, comboReading = "mob", {}, {}, {}, {}, nil
     ComboFrame = nil
     log = {}
 end
@@ -139,6 +144,16 @@ function api.counted() return countedPoints end
 -- Any UNIT_COMBAT event (ABSORB, ...).
 function api.raw(unit, action, amount, school) return onUnitCombat(unit, action, "", amount, school) end
 function api.canAttack(unit, value) attackable[unit] = value end
+function api.dead(unit, value) deadUnits[unit] = value end
+-- The combat-end swap (PLAYER_REGEN_ENABLED): this combat's tally, the next one starting empty.
+function api.endCombat() return takeCombatTally() end
+function api.meterFor(counted, ...)
+    local args, spells = {...}, {}
+    for i = 1, #args, 2 do spells[#spells + 1] = { spellID = args[i], totalAmount = args[i + 1] } end
+    return learnFromMeter(spells, counted)
+end
+-- What ns.forgetLearnedTick does to the store (the settings section isn't loaded here).
+function api.forget(key) db.ticks[key] = nil; dropSnapshots(key) end
 function api.comboAPI(points) comboReading = points end
 -- Blizzard's combo point display showing `lit` of 5 points (nil: hidden).
 function api.comboDisplay(lit)
@@ -698,6 +713,54 @@ sim.reset(); sim.cast(16)
 for _ in range(4):
     sim.advance(3); sim.hit(10, 32)
 check("Meter: readable ticks learn as before, meter doesn't override", (sim.meter(16, 80), sim.learned(16)), (0, 10))
+
+# Upstream bug fixes (Ironship / DoesItDiePlus).
+# The upfront hit in every English wording, in German, and none guessed for other languages.
+sim.reset(); sim.cast(2); hidden_ticks(3, 3, 1)
+check("Meter: Rake 19 upfront ('and an additional') + 39 over 3 ticks, total 72: 16.1 (was 24)",
+      (sim.meter(2, 72), sim.learned(2)), (1, 16.1))
+sim.reset(); sim.cast(17); hidden_ticks(4, 3, 4)
+check("Meter: Flame Shock 20 'immediately' + 28 over 4 ticks, total 56: 8.2 (was 14)",
+      (sim.meter(17, 56), sim.learned(17)), (1, 8.2))
+sim.reset(); sim.cast(19); hidden_ticks(5, 3, 4)
+check("Meter: German Immolate 11 upfront ('sowie') + 20, total 37: 4.8 (was 7.4)",
+      (sim.meter(19, 37), sim.learned(19)), (1, 4.8))
+sim.reset(); sim.cast(18); hidden_ticks(5, 3, 4)
+check("Meter: French Immolate, upfront hit unknown: not learned", (sim.meter(18, 60), sim.learned(18)), (0, None))
+check("  logged", "can't be told apart" in sim.log(), True)
+# The meter counts every mob, the tally only what DoesItDie saw.
+sim.reset(); sim.target("A"); sim.cast(16); sim.target("B"); sim.cast(16); hidden_ticks(4, 3, 32)
+check("Meter: SW:Pain on A (never seen ticking) and B: not learned", (sim.meter(16, 96), sim.learned(16)), (0, None))
+check("  logged", "never showed a tick" in sim.log(), True)
+sim.reset(); sim.cast(16); hidden_ticks(4, 3, 32); sim.target(None); sim.cast(16)
+check("Meter: a second cast with no known target: not learned", (sim.meter(16, 96), sim.learned(16)), (0, None))
+sim.reset(); sim.cast(16); hidden_ticks(2, 3, 32); sim.endCombat(); hidden_ticks(2, 3, 32)
+check("Meter: ticks of a DoT cast in the previous combat: not learned", (sim.meter(16, 48), sim.learned(16)), (0, None))
+sim.reset(); sim.cast(16); hidden_ticks(4, 3, 32); fight_a = sim.endCombat()
+sim.cast(16); hidden_ticks(4, 3, 32)
+check("Meter: a new pull right after: fight B's tally alone against fight B's meter (12)",
+      (sim.meter(16, 48), sim.learned(16)), (1, 12))
+sim.reset(); sim.cast(16)
+for _ in range(2):
+    sim.advance(3); sim.hit(11, 32)
+hidden_ticks(2, 3, 32)
+check("Meter: readable and hidden ticks in one combat: the readable size stands",
+      (sim.meter(16, 46), sim.learned(16)), (0, 11))
+
+# A DoT keeps the size it was applied with until its own first tick; Forget reaches it.
+sim.reset(); sim.learn(16, 15); sim.target("A"); sim.cast(16); sim.target("B"); sim.cast(16)
+sim.advance(3); sim.hit(18, 32)
+check("Learned 15, B's tick of 18 moves the store: A's untouched DoT keeps 15 a tick",
+      (sim.learned(16), sim.markerOn("A")), (18, "60 dmg"))
+sim.forget(16)
+check("  after Forget, A follows the store again (the description's 10)", sim.markerOn("A"), "40 dmg")
+
+# A corpse as the hard target: the cast goes to the soft enemy, also when both have the same name.
+sim.reset(); sim.target("corpse"); sim.canAttack("target", True); sim.dead("target", True)
+sim.plate("softenemy", "B"); sim.name("target", "Wolf"); sim.name("softenemy", "Wolf")
+sim.succeed(1, sim.send(1, None, "Wolf"))
+check("Dead hard target and a same-named soft enemy: the DoT goes on the soft enemy",
+      (sim.markerOn("B"), sim.markerOn("corpse")), ("40 dmg", "0 dmg"))
 
 print(f"\n{'all passed' if not failures else str(failures) + ' FAILED'}")
 if failures:

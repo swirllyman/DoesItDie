@@ -117,8 +117,15 @@ Consequences for the design:
    secret, and `learnFromMeter` turns each total into an average tick: total / (upfront + description tick ×
    factors) × description tick. Skipped below two ticks' worth, outside 0.5–2.5× the description, or when one
    spell has several combo point keys. Blended with the saved size by tick count (`db.tickWeights`, older fights
-   capped at 20 ticks). Ticks on a mob with no target, focus or plate aren't counted, so such a fight learns a
-   bit high. Verified in-game (2026-11-05, warlock): after combat, Current gave readable per-spell totals for
+   capped at 20 ticks). The upfront hit is the damage named before the DoT's clause in any English wording
+   ("and then", "and an additional", "immediately and") or before German "sowie"; in other languages it can't be
+   told apart, so such a spell isn't learned. The meter counts every mob and the tally only what was seen, so a
+   combat is skipped for a spell when one of its casts had no known target (`combatUntracked`), a cast's DoT never
+   showed a tick (out of sight, or the mob died first), the spell wasn't cast that combat (Feign Death, a trap), or
+   a readable tick already taught the key (`combatReadable`). Ticks a seen mob took out of plate range still count
+   as missing, so such a fight learns a bit high. `PLAYER_REGEN_ENABLED` takes the tally (`takeCombatTally`) and
+   starts a fresh one, so a new pull can't mix in; the meter read is one pcall with `canaccesstable` on every row,
+   retried for up to 10 s while empty or secret. Verified in-game (2026-11-05, warlock): after combat, Current gave readable per-spell totals for
    Corruption, Bane of Agony and Immolate, with every tick of the fight counted as hidden.
 5. **Mob keys:** DoTs are kept per mob by GUID. In instances creature GUIDs are reportedly secret (PR #8), so a
    mob with a nameplate is keyed `plate:nameplateN` instead (`plateTokenFor`: the token stays the mob's while its
