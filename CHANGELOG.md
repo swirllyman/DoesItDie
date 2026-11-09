@@ -1,5 +1,9 @@
 # DoesItDie
 
+## Unreleased
+
+- **Rip and Rupture no longer vanish when an auto-attack misses at the same moment.** A miss right after a finisher was always taken as the finisher missing. Now the addon checks your combo points: if they were spent, the finisher landed and its marker stays.
+
 ## v0.9.3
 
 **Restart the game fully after updating** (not just /reload): this version adds a new file.

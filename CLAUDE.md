@@ -97,6 +97,11 @@ Consequences for the design:
    log lines include it.) The exception to "first outcome decides": a DoT with a direct part (Rake) can hit and
    still have its DoT come back IMMUNE (bleed-immune mobs), so an IMMUNE later in the window still drops it.
    Unverified in-game that Forever reports that IMMUNE through `UNIT_COMBAT`.
+   Finishers (Rip, Rupture) get a second look, since a white swing missing in that instant looks the same: when
+   the combo points were readable at send, they're read again 0.5 s after the drop (`resolveFinisherCheck`, from
+   `housekeep`); spent means the finisher landed and it's put back, still there means it missed. Skipped if the
+   target changed (the points are the target's). Unverified in-game that Forever keeps a missed finisher's points
+   (log lines `COMBO after Rip's MISS`).
 4. **Ticks:** each `UNIT_COMBAT` hit on the target is matched to at most one DoT: same school, within a tight
    timing window of the DoT's rhythm, and a plausible size (crits 1.3–2.3×). Physical bleeds and melee white hits
    look alike, hence the tight windows. Learned tick sizes are saved per spell (per combo point count for
@@ -142,14 +147,14 @@ Tuning constants (tick windows, tolerances, fallbacks) are at the top of `DoesIt
 
 ## Working on it
 
-- **Game install:** the Forever beta lives in `C:\Program Files (x86)\World of Warcraft\_classic_beta_\`.
+- **Game install:** Forever lives in `C:\Program Files (x86)\World of Warcraft\_forever_\` (the old beta was `_classic_beta_`).
   `Interface\AddOns\DoesItDie` there is a **junction** to this project's `DoesItDie/`, so edits here are live.
 - **Reload:** `/reload` picks up Lua changes. **New files** (textures) need a full client restart.
 - **Releasing:** add the version's notes to the top of `CHANGELOG.md` (player-facing wording), commit, then push a
   `v*` tag. The packager uploads the whole file as the release's changelog (`.pkgmeta` `manual-changelog`).
 - **Trace log:** the addon always logs casts, ticks, estimates and decisions to its SavedVariables (`db.log`,
   last 500 lines), written on reload or logout to
-  `…\_classic_beta_\WTF\Account\<account>\SavedVariables\DoesItDie.lua`. Reading this after the user plays is
+  `…\_forever_\WTF\Account\<account>\SavedVariables\DoesItDie.lua`. Reading this after the user plays is
   the main debugging loop. `/did debug` echoes the log to chat.
 - **Slash commands:** `/did` (options window), `/did skull` (5-second kill icon test with geometry logged), `/did line`,
   `/did debug`, `/did ticks` (learned tick sizes viewer), `/did reset` (forget learned tick sizes), `/did plates` (nameplate probe, logged), `/did exec [percent]`

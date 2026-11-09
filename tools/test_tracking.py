@@ -90,7 +90,7 @@ function api.reset(waitMode, estimateDuringCast)
     if takeCombatTally then takeCombatTally() end
     db.tickWeights = nil
     db.waitFirstTick = waitMode or "off"
-    lastBuilder, lastDotCast, lastOutcome, armedTrap = nil, nil, nil, nil
+    lastBuilder, lastDotCast, lastOutcome, armedTrap, finisherCheck = nil, nil, nil, nil, nil
     for k in pairs(sentTargets) do sentTargets[k] = nil end
     db.estimateDuringCast = estimateDuringCast ~= false
     if dropCastInProgress then dropCastInProgress("reset") end
@@ -304,6 +304,30 @@ sim.advance(1); sim.cast(4); sim.avoid("MISS")
 for t, amount in ((0.8, 20), (1.8, 20), (1.0, 21), (0.9, 22), (1.8, 20)):
     sim.advance(t); sim.hit(amount, 1)
 check("Replay: missed Rip stays gone through white hits", sim.marker(), "0 dmg from 0 DoT(s)")
+
+# Replay of log 1709052.4 (2026-11-09): a 2-point Rip with readable combo points got a MISS right after it, a
+# white swing: the points were spent, so the Rip landed and comes back.
+sim.reset(); sim.learn("4x2", 21.9); sim.comboAPI(2)
+sim.cast(4); sim.comboAPI(0); sim.advance(0.05); sim.avoid("MISS", 1)
+check("Rip + white miss: dropped at first", sim.marker(), "0 dmg from 0 DoT(s)")
+sim.advance(0.5)
+check("  points spent: Rip restored", sim.marker(), "131 dmg from 1 DoT(s)")
+check("  log says restored", "spent: it landed, restored" in sim.log(), True)
+sim.advance(1.45); sim.hiddenHit(1)
+check("  and its first tick matches", "TICK Rip" in sim.log(), True)
+# The Rip itself missed: its points are kept.
+sim.reset(); sim.learn("4x2", 21.9); sim.comboAPI(2)
+sim.cast(4); sim.advance(0.05); sim.avoid("MISS", 1); sim.advance(0.5)
+check("Rip missed, points kept: stays dropped", sim.marker(), "0 dmg from 0 DoT(s)")
+check("  log says it missed", "(had 2), it missed" in sim.log(), True)
+# Points spent but the player tabbed away: the reading is for the new target, so it stays dropped.
+sim.reset(); sim.learn("4x2", 21.9); sim.comboAPI(2)
+sim.cast(4); sim.comboAPI(0); sim.advance(0.05); sim.avoid("MISS", 1); sim.target("other"); sim.advance(0.5)
+check("Rip + miss, then tab: stays dropped", sim.markerOn("mob"), "0 dmg")
+# The miss before the cast event (look-back), points spent: restored too.
+sim.reset(); sim.learn("4x2", 21.9); sim.comboAPI(2)
+guid = sim.send(4); sim.comboAPI(0); sim.avoid("MISS", 1); sim.advance(0.05); sim.succeed(4, guid); sim.advance(0.5)
+check("Miss before Rip's cast event, points spent: restored", sim.marker(), "131 dmg from 1 DoT(s)")
 
 # Replay of a landed 3-point Rip (log 99200.3): ticks 21,21,20,20 every ~2s, with white hits of the SAME size
 # in between. All four ticks must be matched and no white hit.

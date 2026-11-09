@@ -464,7 +464,10 @@ local lastBuilder    -- { key, points, at }: builder whose outcome isn't known y
 -- A DoT with a direct part (Rake, Immolate) gets two results: the direct part can hit while the DoT itself is
 -- IMMUNE (a bleed on a mob immune to bleeds). So a cast whose direct part hit stays pending (landedAt) for the
 -- rest of its window, and only an IMMUNE can still remove its DoT.
-local lastDotCast    -- { key, name, dot, previous, at, landedAt }: DoT cast whose outcome isn't known yet
+local lastDotCast    -- { key, name, dot, previous, at, landedAt, comboRead }: DoT cast whose outcome isn't known yet
+-- A finisher DoT dropped for an avoid, until the combo points say whose avoid it was (see removeAvoidedDot).
+local FINISHER_CHECK_DELAY = 0.5
+local finisherCheck  -- { cast, dot, replaced, action, school, at }
 local lastOutcome    -- { key, avoided, action, school, at, immune }: most recent outcome on a mob; a hit keeps
                      -- an IMMUNE just before it in .immune
 local armedTrap      -- { spellID, name, total, school, duration, interval, placedAt, expiresAt }: see TRAP_DOTS
@@ -647,7 +650,40 @@ local function removeAvoidedDot(cast, action, school)
         dots[cast.name] = nil
         trace(string.format("AVOID %s (school %s) right after %s; dropped", action, tostring(school), cast.name))
     end
+    -- A cat's or rogue's white swing missing in that instant looks the same as the finisher missing (in-game
+    -- 2026-11-09: a Rip that landed was dropped). A finisher that misses keeps its combo points, one that lands
+    -- spends them, so a finisher whose points were read at send is judged again once they've settled.
+    if cast.comboRead then
+        finisherCheck = { cast = cast, dot = dot, replaced = dots[cast.name], action = action, school = school,
+            at = GetTime() + FINISHER_CHECK_DELAY }
+    end
     return true
+end
+
+-- The combo points after a dropped finisher: spent means it landed (the avoid was a white swing), so it's put
+-- back; still there, unreadable, or the target changed (the points belong to the target) leaves it dropped.
+-- Unverified in-game that Forever keeps a missed finisher's combo points.
+local function resolveFinisherCheck(now)
+    local check = finisherCheck
+    if not check or now < check.at then return end
+    finisherCheck = nil
+    local cast = check.cast
+    if unitKey("target") ~= cast.key then
+        trace("COMBO after " .. cast.name .. "'s " .. check.action .. ": target changed, stays dropped")
+        return
+    end
+    local points, readings = readComboPoints()
+    if not points or points >= cast.comboRead then
+        trace(string.format("COMBO after %s's %s: %s (had %d), it missed", cast.name, check.action, readings,
+            cast.comboRead))
+        return
+    end
+    local dots = dotsByTarget[cast.key]
+    if (dots and dots[cast.name]) ~= check.replaced or now >= check.dot.expiresAt then return end
+    dotsByTarget[cast.key] = dots or {}
+    dotsByTarget[cast.key][cast.name] = check.dot
+    trace(string.format("COMBO after %s's %s: %s (had %d), spent: it landed, restored", cast.name, check.action,
+        readings, cast.comboRead))
 end
 
 local function onAvoided(key, action, school)
@@ -794,7 +830,8 @@ local function onPlayerCast(spellID, castGUID)
     local previous = dotsByTarget[key][name]
     local dot = newDot(spellID, tickKey, name, total, school, duration, statedInterval, now)
     dotsByTarget[key][name] = dot
-    lastDotCast = { key = key, name = name, dot = dot, previous = previous, at = now }
+    lastDotCast = { key = key, name = name, dot = dot, previous = previous, at = now,
+        comboRead = isFinisher and comboSource == "read" and comboPoints or nil }
     dot.name = dot.name or name
     tallyCast(dot, isFinisher and 0 or parseDirectPart(desc)) -- a finisher's point table is no upfront hit
     local learned = tickKey and db.ticks[tickKey]
@@ -1288,6 +1325,7 @@ local function isObservable(key)
 end
 
 local function housekeep(now)
+    resolveFinisherCheck(now)
     for key, dots in pairs(dotsByTarget) do
         for name, dot in pairs(dots) do
             local late = (dot.ticksSeen == 0 and dot.travel) or 0
