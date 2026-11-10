@@ -53,6 +53,11 @@ local attackable = {}
 function UnitCanAttack(_, unit) return attackable[unit] end
 local deadUnits = {}
 function UnitIsDeadOrGhost(unit) return deadUnits[unit] end
+-- Blizzard's native Mouseover Cast setting, its key binding and whether that key is held.
+local mouseoverCast = { enabled = false, key = "NONE", held = false }
+function GetCVarBool(name) if name == "enableMouseoverCast" then return mouseoverCast.enabled end end
+function GetModifiedClick(action) if action == "MOUSEOVERCAST" then return mouseoverCast.key end end
+function IsModifiedClick(action) if action == "MOUSEOVERCAST" then return mouseoverCast.held end end
 -- Combo points: the API's reading (nil while secret), and Blizzard's display (ComboFrame, set by api.comboDisplay).
 local comboReading
 function GetComboPoints() return comboReading end
@@ -96,6 +101,7 @@ function api.reset(waitMode, estimateDuringCast)
     if dropCastInProgress then dropCastInProgress("reset") end
     resetComboCount()
     targetKey, plates, names, attackable, deadUnits, comboReading = "mob", {}, {}, {}, {}, nil
+    mouseoverCast.enabled, mouseoverCast.key, mouseoverCast.held = false, "NONE", false
     ComboFrame = nil
     log = {}
 end
@@ -144,6 +150,9 @@ function api.counted() return countedPoints end
 -- Any UNIT_COMBAT event (ABSORB, ...).
 function api.raw(unit, action, amount, school) return onUnitCombat(unit, action, "", amount, school) end
 function api.canAttack(unit, value) attackable[unit] = value end
+function api.mouseoverCast(enabled, key, held)
+    mouseoverCast.enabled, mouseoverCast.key, mouseoverCast.held = enabled, key or "NONE", held == true
+end
 function api.dead(unit, value) deadUnits[unit] = value end
 -- The combat-end swap (PLAYER_REGEN_ENABLED): this combat's tally, the next one starting empty.
 function api.endCombat() return takeCombatTally() end
@@ -667,6 +676,29 @@ check("[@mouseover] Corruption on B, target A, no soft target: on B", (sim.marke
 sim.reset(); sim.target(None); sim.plate("mouseover", "B")
 sim.succeed(1, sim.send(1, None, "B"))
 check("  same with no target at all: on B", sim.markerOn("B"), "40 dmg")
+# CurseForge comment (2026-11-08): Blizzard's native Mouseover Cast, no macro. In a pack the mob under the mouse
+# has the target's name, so only the setting tells.
+sim.reset(); sim.target("A"); sim.canAttack("target", True); sim.plate("mouseover", "B"); sim.canAttack("mouseover", True)
+sim.name("target", "Wolf"); sim.name("mouseover", "Wolf"); sim.mouseoverCast(True, "NONE")
+sim.succeed(1, sim.send(1, None, "Wolf"))
+check("Native mouseover cast on same-named B, target A: on B", (sim.markerOn("B"), sim.markerOn("A")),
+      ("40 dmg", "0 dmg"))
+sim.reset(); sim.target("A"); sim.canAttack("target", True); sim.plate("mouseover", "B"); sim.canAttack("mouseover", True)
+sim.name("target", "Wolf"); sim.name("mouseover", "Wolf"); sim.mouseoverCast(False)
+sim.succeed(1, sim.send(1, None, "Wolf"))
+check("  setting off: on the target A", (sim.markerOn("A"), sim.markerOn("B")), ("40 dmg", "0 dmg"))
+sim.reset(); sim.target("A"); sim.canAttack("target", True); sim.plate("mouseover", "B"); sim.canAttack("mouseover", True)
+sim.name("target", "Wolf"); sim.name("mouseover", "Wolf"); sim.mouseoverCast(True, "SHIFT", False)
+sim.succeed(1, sim.send(1, None, "Wolf"))
+check("  its key not held: on the target A", (sim.markerOn("A"), sim.markerOn("B")), ("40 dmg", "0 dmg"))
+sim.reset(); sim.target("A"); sim.canAttack("target", True); sim.plate("mouseover", "B"); sim.canAttack("mouseover", True)
+sim.mouseoverCast(True, "SHIFT", True)
+sim.succeed(1, sim.send(1, None, None))
+check("  key held, cast names no one: on B", (sim.markerOn("B"), sim.markerOn("A")), ("40 dmg", "0 dmg"))
+sim.reset(); sim.target("A"); sim.canAttack("target", True); sim.plate("mouseover", "B"); sim.canAttack("mouseover", True)
+sim.mouseoverCast(True, "NONE")
+sim.succeed(1, sim.send(1, None, "A"))
+check("  cast names the target, not the mouseover: on A", (sim.markerOn("A"), sim.markerOn("B")), ("40 dmg", "0 dmg"))
 
 # Issue #26: Forever hides UNIT_COMBAT amounts in combat, while action and school stay readable. Hits are then
 # matched to DoTs on school and timing alone, and teach no tick size.

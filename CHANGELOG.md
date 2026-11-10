@@ -1,8 +1,9 @@
 # DoesItDie
 
-## Unreleased
+## v0.9.4
 
 - **Rip and Rupture no longer vanish when an auto-attack misses at the same moment.** A miss right after a finisher was always taken as the finisher missing. Now the addon checks your combo points: if they were spent, the finisher landed and its marker stays.
+- **Blizzard's own Mouseover Cast** (Options > Combat, no macro needed): DoTs now go on the mob under your mouse, even when it has the same name as your target. Thanks to gagunk for the report.
 
 ## v0.9.3
 

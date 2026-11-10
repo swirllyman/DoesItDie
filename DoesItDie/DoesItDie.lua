@@ -544,7 +544,36 @@ end
 -- matches the soft enemy (a mouseover or soft-target cast) goes on that. A same-named target wins, as before. A
 -- focus or soft enemy whose GUID is secret can't be tracked, so that cast is skipped (false), not put on the target.
 -- A friendly hard target never takes a cast: with one selected, the soft enemy is the cast's default mob (PR #14).
+-- Blizzard's own Mouseover Cast (Options > Combat, no macro): with it on and its key held (or none set), a cast
+-- goes on the mob under the mouse whatever the target is, so names can't tell: in a pack every mob shares the
+-- target's name (CurseForge comment, 2026-11-08). True only when the client says so plainly.
+local function nativeMouseoverCast()
+    local getCVar = (C_CVar and C_CVar.GetCVarBool) or GetCVarBool
+    if not getCVar then return false end
+    local ok, enabled = pcall(getCVar, "enableMouseoverCast")
+    if not ok or isSecret(enabled) or not enabled then return false end
+    if GetModifiedClick then
+        local okKey, key = pcall(GetModifiedClick, "MOUSEOVERCAST")
+        if okKey and key == "NONE" then return true end
+    end
+    if not IsModifiedClick then return false end
+    local okHeld, held = pcall(IsModifiedClick, "MOUSEOVERCAST")
+    return okHeld and not isSecret(held) and held == true
+end
+
 local function sentTargetKey(targetName)
+    -- An attackable, living mouseover mob takes a native mouseover cast, unless the cast names some other mob.
+    if nativeMouseoverCast() then
+        local okA, attackable = pcall(UnitCanAttack, "player", "mouseover")
+        local okD, dead = pcall(UnitIsDeadOrGhost, "mouseover")
+        local okN, name = pcall(UnitName, "mouseover")
+        local named = type(targetName) ~= "string" or isSecret(targetName) or targetName == ""
+            or (okN and not isSecret(name) and name == targetName)
+        if okA and not isSecret(attackable) and attackable == true and not (okD and dead == true) and named then
+            local key = unitKey("mouseover")
+            if key then return key end
+        end
+    end
     local okAttack, attackable = pcall(UnitCanAttack, "player", "target")
     -- With action targeting the corpse of the last kill can stay the hard target while the next mob (often of the
     -- same name) is the soft enemy: a corpse can't be cast at, so the cast goes to the soft enemy.

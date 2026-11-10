@@ -82,6 +82,9 @@ Consequences for the design:
    GUID): players who tab-dot have often changed target by the time an instant's cast event arrives. The send
    event names the cast's target: a name matching the focus, the soft enemy or the mouseover unit (and not the
    target) puts it on that mob, and a friendly hard target never takes a cast (the soft enemy does; `sentTargetKey`).
+   With Blizzard's native Mouseover Cast on (`enableMouseoverCast` CVar, its `MOUSEOVERCAST` key held or `NONE`),
+   an attackable mouseover mob takes the cast first, unless the cast names another mob: names can't tell
+   same-named pack mobs apart (`nativeMouseoverCast`; CVar and binding names from retail, unverified on Forever).
    **Immolation Trap** (`TRAP_DOTS`) only arms on cast: the trap casts the DoT when it springs, with no event for
    the player. The first unmatched Fire hit of a plausible size on any mob, at least one tick after placing and
    within the trap's minute, becomes its tick 1 (`springTrap`). Placing another Fire trap disarms it.
