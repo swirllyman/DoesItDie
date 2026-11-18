@@ -862,6 +862,12 @@ local function buildTabs()
     marker:slider("outlineThickness", "Outline thickness", 1, 8, 1, { enabledIf = hasOutline })
     marker:choice("outlineColor", "Outline color", lists.colors, { enabledIf = hasOutline })
     marker:slider("outlineOpacity", "Outline opacity", 10, 100, 5, { suffix = "%", enabledIf = hasOutline })
+    marker:gap()
+    marker:checkbox("partyDots", "Share DoTs with party", { tooltip = "Adds your party members' DoTs to the "
+        .. "marker and kill icon, and sends them yours. Each of you needs DoesItDie with this on. Open world only: "
+        .. "paused in dungeons and boss fights." })
+    marker:choice("partyDotColor", "Party DoT color", lists.colors,
+        { enabledIf = function(s) return s.partyDots end, tooltip = "Party members' DoTs, in every DoT color mode." })
 
     local effects = addTab("Effects")
     effects:checkbox("smoothMotion", "Smooth motion",

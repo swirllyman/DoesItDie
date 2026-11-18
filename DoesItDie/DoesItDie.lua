@@ -173,6 +173,9 @@ local DEFAULTS = {
     plateOutlineThickness = 1,
     plateOutlineColor = "gold",
     plateOutlineOpacity = 75,
+    -- Party DoTs (Party.lua): share DoT estimates with party members who also have it on (open world only)
+    partyDots = false,
+    partyDotColor = "green",
 }
 
 -- "Wait for first tick": whether a DoT counts toward the marker before its first tick has landed.
@@ -1399,7 +1402,7 @@ local function dotBreakdown(key)
     local dots = key and dotsByTarget[key]
     local cast = key and castInProgress and castInProgress.key == key and castInProgress or nil
     local list = {}
-    if not dots and not cast then return list end
+    -- No early return when this mob has none of my DoTs: a party member's may still be on it (Party.lua).
     for name, dot in pairs(dots or {}) do
         if not isWaiting(dot) and not (cast and name == cast.name) then
             table.insert(list, { name = name, spellID = dot.spellID, school = dot.school, appliedAt = dot.appliedAt,
@@ -1411,6 +1414,8 @@ local function dotBreakdown(key)
             appliedAt = cast.dot.appliedAt, expiresAt = cast.dot.expiresAt, damage = remainingDamage(cast.dot),
             provisional = true })
     end
+    -- Party members' DoTs on the same mob (Party.lua), when shared: entries with remote = true.
+    if ns.party then ns.party.addRemote(key, list) end
     table.sort(list, function(a, b) return a.appliedAt < b.appliedAt end)
     return list
 end
@@ -1444,6 +1449,24 @@ ns.DEFAULTS = DEFAULTS
 ns.lists = { waitModes = WAIT_MODES } -- Display.lua adds the look lists
 -- What Display.lua needs from the tracking above.
 ns.tracking = { housekeep = housekeep, targetRemainingDamage = targetRemainingDamage, unitKey = unitKey }
+
+-- What Party.lua shares: every mob's own DoTs (never party members'), key -> list of plain entries with their tick
+-- timing. Keys are as in dotsByTarget (GUID, plate:nameplateN or target); Party.lua only sends GUID keys.
+function ns.tracking.ownDots()
+    local out = {}
+    for key, dots in pairs(dotsByTarget) do
+        local list = {}
+        for name, dot in pairs(dots) do
+            if not isWaiting(dot) then
+                list[#list + 1] = { name = name, spellID = dot.spellID, school = dot.school,
+                    damage = remainingDamage(dot), nextTickAt = dot.nextTickAt, expiresAt = dot.expiresAt,
+                    interval = dot.interval }
+            end
+        end
+        if #list > 0 then out[key] = list end
+    end
+    return out
+end
 
 -- The DoTs on the mob behind `unit` (e.g. "nameplate3"): per-DoT breakdown and total remaining damage.
 function ns.dotBreakdownForUnit(unit)

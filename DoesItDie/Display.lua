@@ -103,6 +103,8 @@ local paletteIndexByName, nextPaletteIndex = {}, 1
 
 -- mode: "school" or "each"; defaults to the target marker's setting (nameplates pass their own).
 local function dotColor(entry, mode)
+    -- Party members' DoTs (Party.lua) stand apart from yours in every color mode.
+    if entry.remote then return COLOR_BY_ID[db.partyDotColor] or COLOR_BY_ID.green end
     if (mode or db.dotColors) == "school" then
         return SCHOOL_COLORS[entry.school] or COLOR_BY_ID.white
     end
@@ -997,6 +999,7 @@ ns.findById = findById
 ns.textureDir = TEXTURE_DIR
 ns.display = {
     schoolColors = SCHOOL_COLORS,
+    colorById = function(id) return COLOR_BY_ID[id] end,
     setDb = function(saved) db = saved end,
     attach = attach,
     animate = animateMarker,

@@ -27,6 +27,8 @@ be displayed but not compared or used in math. Verified in-game on the 1.60.1 be
 | Some Blizzard frames' strata/level | Your stats **out** of combat |
 | `UNIT_COMBAT` damage **amounts** in combat (since 2026-11, issue #26) | `UNIT_COMBAT` action and school |
 | | Damage meter per-spell totals (`C_DamageMeter`) after combat |
+| Party members' casts (instants fire nothing; cast-time spells' ID, name and GUID are secret) | Addon messages (`C_ChatInfo.SendAddonMessage`) in combat, open world and dungeons; refused during boss encounters |
+| Mob GUIDs, `UnitIsUnit` and raid marks in **dungeons** | Mob GUIDs in the open world (they match across clients) |
 
 Registering `COMBAT_LOG_EVENT_UNFILTERED` is forbidden: it raises a "blocked action" popup even under `pcall`.
 
@@ -60,6 +62,7 @@ Consequences for the design:
 | `DoesItDie/Execute.lua` | Execute range: a general "target is below 20%" indicator for every class (no class-specific logic, by design). For now only the `/did exec [percent]` probe, comparing two ways to show it: A, geometry (an icon at the threshold's spot on a long health-fed bar, clipped to the bar's empty part) and B, `UnitHealthPercent` with a step color curve, if Forever has it. Unverified in-game |
 | `DoesItDie/Locale.lua` | Other client languages: a registry (`ns.locale.register`) that each language file joins with its own description patterns (`parseDot`, `isFinisher`, `comboPointsAwarded`) and English name -> local names for the name-keyed tables (`NAME_TABLES` in `DoesItDie.lua`). English patterns always run first, unchanged; descriptions they don't read go to every language in turn, whatever `GetLocale()` says (one language's patterns can't match another's text). At load the tables also get the names the client reports for known spell IDs (`L.SPELL_IDS`), in any language. Unread non-English descriptions are logged once per spell (`NOT READ`). Also the addon's own text: `T("English text")` returns it in the window language (`uiLanguage` setting, Advanced > Window language: auto = `GetLocale()`, applies after `/reload`) from that language's `strings` table, else English. `python tools/test_load.py --dump-strings FILE` writes every key as a table to fill in. Covers the options window, tick viewer, `/did help` and the chat messages (PR #23); the probes are English only |
 | `DoesItDie/Locale_deDE.lua`, `Locale_esES.lua`, `Locale_frFR.lua`, `Locale_koKR.lua`, `Locale_ptBR.lua`, `Locale_zhCN.lua`, `Locale_ruRU.lua` | German (PR #2), Spanish (ported from PR #6), French (ported from PR #11; non-breaking spaces fixed in PR #15), Korean (issue #18), Brazilian Portuguese (issue #19), Chinese (issue #20) and Russian (options window text from PR #33). Korean, Portuguese, Chinese and Russian are from Forever's own tooltips via Wowhead's tooltip API: `https://nether.wowhead.com/forever/tooltip/spell/<id>?locale=N` (1 Korean, 4 Simplified Chinese, 7 Russian, 8 Portuguese). Russian: Wowhead prints "е" where the client may print "ё" (приём, тёмной), so the patterns accept both; bleeds are worded as lost health ("теряет ... здоровья за N сек."), only read with "теряет" so heals never are. Wowhead has no Traditional Chinese for Forever, but zhTW's text is zhCN's wording in traditional characters (issue #20's log), so `Locale_zhCN.lua` turns traditional characters into simplified ones first and reads both. Some Chinese tooltips name no school (Corruption, Pyroblast, Fireball's DoT part): `SCHOOL_BY_NAME`. German is Classic Era wording; Spanish and French are Forever's (Wowhead). None verified on a non-English client yet. German also has the options window's text (`STRINGS`); Spanish and French are still English there |
+| `DoesItDie/Party.lua` | Party DoTs (issue #25), behind the Marker tab's `partyDots` option (off by default; `partyDotColor`). Other players' casts can't be read (instants fire no event for party units; cast-time spells fire with secret spell ID, name and GUID), so each copy sends its own DoTs: every 0.2s it compares `ns.tracking.ownDots()` per mob with what it last sent and sends `M;1;<guid>;spellID:school:damage:nextTickIn:ticksLeft:interval,...` on a change, every 6s unchanged, and once empty when the mob's DoTs are gone. Times go as seconds from now and the receiver anchors them to its own clock; the damage steps down per tick from there. Received DoTs join `dotBreakdown`'s list (`party.addRemote`) with `remote = true` and `sender`, so the marker, skull, nameplates, focus and API include them; `Display.lua` colors them `partyDotColor`. Sending: open world only (`IsInInstance`: dungeons make mob GUIDs, `UnitIsUnit` and raid marks secret, so mobs can't be matched across clients), not during `IsEncounterInProgress` (sends there return 11), only after a hello (`H;1;q`, retried every 20s until someone answers `H;1;a`), through a token bucket (6, refilling 1/s): result 3 (throttled; the client allows a burst of about 10) backs off 1s, other errors pause 5s. Messages over 255 bytes would be cut silently, so encode drops DoTs to fit. Peers and their DoTs are dropped when they leave the group. Probe results (2026-11-15, Forever 1.60.1, open world and dungeon) are in issue #25. Untested with two players in-game |
 | `DoesItDie/API.lua` | Public API for other addons (issue #24), documented for them in `API.md`: the global `DoesItDie` with `GetRemainingDamage(unit)`, `GetDoTs(unit)` (copies of `ns.dotBreakdownForUnit`'s entries) and `RegisterCallback(owner, func)` (`DOTS_CHANGED`, unit: target, focus and nameplates compared after every refresh, only while someone is registered). Loaded last: it wraps `ns.refresh`. Bump `API_VERSION` when it changes incompatibly |
 | `DoesItDie/Textures/` | Generated TGAs: patterns (dashes, stripes, spark, shine) and the sunglasses icon |
 | `tools/make_textures.py` | Regenerates the textures |
@@ -68,6 +71,7 @@ Consequences for the design:
 | `tools/test_spellbook.py` | Runs every scraped Forever damage tooltip through the parser and compares with a reviewed snapshot (`tools/data/spellbook_expected.json`) |
 | `tools/test_tracking.py` | Plays scripted fights through the real tracking code with game APIs stubbed: tick matching, dodges/misses, recasts, combo points, first-tick waiting. Includes replays of real in-game logs |
 | `tools/test_display.py` | Loads the real display code (`Display.lua`) with mocked frames and checks the per-DoT segments (running totals, colors, dividers, text breakdown) |
+| `tools/test_party.py` | `Party.lua` alone with a fake client: the message format, receiving and the per-tick countdown, hellos and peers, sending (throttle, results 3 and 11, instance/encounter gating, refresh, clearing) |
 | `tools/test_load.py` | Smoke test: loads every file in the .toc with a fake WoW environment and drives it like a player (load, `/did`, tabs, presets, controls, Simulate fight, close). Catches runtime errors, not visual ones |
 | `tools/test_locale.py` | Runs `tools/test_locale.lua`: every English and German tooltip in `tools/data/locale_cases.lua` through the real parser, English checked against the v0.5.0 parser (`tools/data/upstream_parser_v0.5.0.lua`), plus the language registry |
 | `tools/test_locale_fr_es.py` | French (Forever's own tooltips) and Spanish tooltips through the real parser and name tables, English patterns first as in game |
@@ -162,7 +166,7 @@ Tuning constants (tick windows, tolerances, fallbacks) are at the top of `DoesIt
 - **Slash commands:** `/did` (options window), `/did skull` (5-second kill icon test with geometry logged), `/did line`,
   `/did debug`, `/did ticks` (learned tick sizes viewer), `/did reset` (forget learned tick sizes), `/did plates` (nameplate probe, logged), `/did exec [percent]`
   (execute range probe, logged; again to stop).
-- **Tests:** `pip install lupa`, then run the eleven `tools/test_*.py` scripts (use `--update` on
+- **Tests:** `pip install lupa`, then run the twelve `tools/test_*.py` scripts (use `--update` on
   `test_spellbook.py` only after reviewing a change). There's no Lua install; `luaparser` (pip) works as a
   syntax check.
 - **Gotchas:**
@@ -189,7 +193,9 @@ whether its first tick lands one interval after springing are assumed from Class
 
 Known limitations:
 
-- Only the **player's** DoTs are tracked.
+- Only the **player's** DoTs are tracked, plus party members' with "Share DoTs with party" on, when they run
+  DoesItDie too, and only in the open world. A party member's DoT shows about a second late (message delay plus the
+  0.2s check), and what they send is their own estimate.
 - Immolation Trap: if the trapped mob's first tick isn't seen (not target, focus or a visible nameplate), a later
   tick is taken as tick 1 and that trap's estimate runs high. Someone else's Fire tick of a similar size while the
   trap is armed can also be taken for it.
@@ -204,10 +210,7 @@ Known limitations:
 
 ## Ideas / next steps
 
-- **Party members' DoTs.** First check whether `UNIT_SPELLCAST_SUCCEEDED` for party units carries readable spell
-  IDs in combat (a small probe plus one pull with a party member who has a DoT). If it does, track their casts
-  the same way (their target via GUID, tick sizes learned from observed ticks), behind an option and styled
-  differently from the player's. If it doesn't, the fallback is addon-to-addon messages, which requires party
-  members to install it and may be restricted in combat.
+- **Party DoTs in dungeons.** Mobs can't be matched across clients there (GUIDs, `UnitIsUnit` and raid marks are
+  secret), so it would need some other value both clients can read.
 - **Rupture's duration** depends on combo points; if combo counting proves unreliable, consider waiting for
   the first tick for finishers.

@@ -28,8 +28,11 @@ The player's DoTs on that mob, oldest first. A new table on every call, safe to 
 | `damage` | Remaining damage (rounded) |
 | `appliedAt`, `expiresAt` | `GetTime()` seconds |
 | `provisional` | `true` while the spell is still being cast (it's dropped if the cast fails) |
+| `remote` | `true` for a party member's DoT (only with the "Share DoTs with party" option on), else `false` |
+| `sender` | For `remote` entries, the party member who sent it (character name, without realm) |
 
-DoTs waiting for their first tick (when DoesItDie isn't sure they landed) aren't listed.
+DoTs waiting for their first tick (when DoesItDie isn't sure they landed) aren't listed. With the "Share DoTs with
+party" option on, party members' DoTs are included here and in `GetRemainingDamage` (open world only).
 
 ### `DoesItDie.RegisterCallback(owner, func)` / `DoesItDie.UnregisterCallback(owner)`
 

@@ -1,5 +1,11 @@
 # DoesItDie
 
+## Unreleased
+
+**Restart the game fully after updating** (not just /reload): this version adds a new file.
+
+- **Party DoTs** (issue #25): with "Share DoTs with party" ticked (Marker tab), your DoTs and your party members' add up on the marker and the kill icon, with theirs in their own color ("Party DoT color"). Everyone in the group needs DoesItDie with the option on: Forever hides other players' casts from addons, so each copy sends its own DoTs to the others. Open world only: in dungeons the game hides which mob is which, and it blocks addon messages during boss fights. Off by default.
+
 ## v0.9.4
 
 - **Rip and Rupture no longer vanish when an auto-attack misses at the same moment.** A miss right after a finisher was always taken as the finisher missing. Now the addon checks your combo points: if they were spent, the finisher landed and its marker stays.

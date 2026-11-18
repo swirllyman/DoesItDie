@@ -23,4 +23,5 @@ Options.lua
 Nameplates.lua
 Focus.lua
 Execute.lua
+Party.lua
 API.lua

@@ -28,7 +28,8 @@ local function trackedKey(unit)
 end
 
 -- Total remaining damage of the player's DoTs on the mob behind `unit` (rounded), and how many DoTs that is.
--- 0, 0 when there are none or the unit can't be tracked.
+-- With "Share DoTs with party" on, party members' DoTs on it count too. 0, 0 when there are none or the unit can't
+-- be tracked.
 function api.GetRemainingDamage(unit)
     if not trackedKey(unit) then return 0, 0 end
     local list, total = ns.dotBreakdownForUnit(unit)
@@ -37,7 +38,9 @@ end
 
 -- The player's DoTs on the mob behind `unit`, oldest first: a new list of new tables (safe to keep or change), each
 -- { name, spellID, school (bit mask, 1 = Physical), damage (remaining), appliedAt, expiresAt (GetTime() seconds),
--- provisional (true while it's still being cast) }. DoTs still waiting for their first tick aren't in it.
+-- provisional (true while it's still being cast), remote (true for a party member's DoT, shared with "Share DoTs
+-- with party"), sender (that party member's name, remote only) }. DoTs still waiting for their first tick aren't
+-- in it.
 function api.GetDoTs(unit)
     local result = {}
     if not trackedKey(unit) then return result end
@@ -45,7 +48,7 @@ function api.GetDoTs(unit)
     for i, entry in ipairs(list) do
         result[i] = { name = entry.name, spellID = entry.spellID, school = entry.school,
             damage = math.floor(entry.damage + 0.5), appliedAt = entry.appliedAt, expiresAt = entry.expiresAt,
-            provisional = entry.provisional or false }
+            provisional = entry.provisional or false, remote = entry.remote or false, sender = entry.sender }
     end
     return result
 end
