@@ -471,6 +471,9 @@ local finisherCheck  -- { cast, dot, replaced, action, school, at }
 local lastOutcome    -- { key, avoided, action, school, at, immune }: most recent outcome on a mob; a hit keeps
                      -- an IMMUNE just before it in .immune
 local armedTrap      -- { spellID, name, total, school, duration, interval, placedAt, expiresAt }: see TRAP_DOTS
+-- The trap's DoT as shown from the aura event, one tick interval before its first damage tick (see
+-- startTrapPreview). Kept out of dotsByTarget, so ticks can't match it until the first one confirms it.
+local trapPreview    -- { key, dot }
 -- The mob each cast was aimed at, by cast GUID, taken when the cast is sent. An instant DoT's
 -- UNIT_SPELLCAST_SUCCEEDED comes a server round trip later, and a player who tabs to the next mob straight
 -- away has changed target by then: the DoT used to be put on the new target.
@@ -845,6 +848,7 @@ local function onPlayerCast(spellID, castGUID)
         local lifetime = tonumber(desc:match("[Tt]rap will exist for (%d+) min"))
         armedTrap = { spellID = spellID, name = name, total = total, school = school, duration = duration,
             interval = interval, placedAt = now, expiresAt = now + (lifetime or 1) * 60 }
+        trapPreview = nil -- a preview belongs to the trap it was started for
         trace(string.format("TRAP %s (id %d) armed: %d dmg over %ss, school %d, per-tick %s", name, spellID, total,
             duration, school, db.ticks[spellID] and ("learned " .. db.ticks[spellID]) or "from description"))
         return
@@ -1115,6 +1119,65 @@ local function springTrap(key, unit, amount, school, isCrit, now)
     return true
 end
 
+-- The same first tick when Forever hides its amount, which is the normal case: a trap springs in combat, and in
+-- combat UNIT_COMBAT amounts are secret (issue #26). With no number there is nothing to check the size against, so
+-- school and timing alone decide, exactly as they do for a cast DoT's later ticks. The estimate keeps the
+-- description's share (a trap isn't in the cast tally, so the damage meter can't teach it a real size). A different
+-- Fire hit on that mob in the window can spring it instead (another player's Immolate, a pet's Firebolt): that
+-- trap's estimate then starts on that mob.
+local function springTrapHidden(key, unit, school, now)
+    local trap = armedTrap
+    if not trap or school ~= trap.school then return false end
+    local age = now - trap.placedAt
+    if now > trap.expiresAt + trap.interval + TICK_MATCH_WINDOW then
+        trace(string.format("TRAP %s expired after %.0fs with no first tick", trap.name, age))
+        armedTrap = nil
+        return false
+    end
+    if now < trap.placedAt + trap.interval - TICK_MATCH_WINDOW then
+        trace(string.format("TRAP %s: school %d hit %.1fs after placing, before its first tick could land",
+            trap.name, school, age))
+        return false
+    end
+    local dot = newDot(trap.spellID, trap.spellID, trap.name, trap.total, trap.school, trap.duration,
+        trap.interval, now - trap.interval)
+    armedTrap = nil
+    dotsByTarget[key] = dotsByTarget[key] or {}
+    dotsByTarget[key][trap.name] = dot
+    -- In this combat's tally so the damage meter can teach the trap's real tick size after the fight (a trap isn't
+    -- a cast, so nothing else would put it there; the description's share is only a guess, e.g. it leaves out
+    -- attack power).
+    tallyCast(dot, 0)
+    -- No amount to record, so count this tick by hand and let it anchor the rhythm (as a cast DoT's first hidden
+    -- tick does).
+    dot.ticksSeen = 1
+    dot.lastTickAmount, dot.lastTickShape, dot.lastTickCrit = 0, 1, false
+    local tickIndex = anchorTick(dot, 1, now)
+    trace(string.format("TRAP %s sprung on %s (amount hidden): %.1fs after placing, tick %d/%d", trap.name, unit,
+        now - trap.placedAt, tickIndex, dot.totalTicks))
+    return true
+end
+
+-- UNIT_AURA (target): the trap has fired. That event is the only thing the client reports at the trigger — no cast,
+-- no readable aura, no damage until one tick interval later — so the DoT is started here and the first real tick
+-- confirms it (see onHiddenAmountHit). If no tick lands on its schedule, the preview is dropped and the trap stays
+-- armed for the normal tick-based start, so a wrong guess costs one interval of a marker on that mob at most.
+local TRAP_AURA_MIN_AGE = 0.1 -- an aura that was already on the mob before the placement isn't the trap
+local function startTrapPreview()
+    local trap = armedTrap
+    if not trap or trapPreview then return end
+    local now = GetTime()
+    if now - trap.placedAt < TRAP_AURA_MIN_AGE then return end
+    local key = unitKey("target")
+    if not key then return end
+    local dot = newDot(trap.spellID, trap.spellID, trap.name, trap.total, trap.school, trap.duration,
+        trap.interval, now)
+    dot.name = trap.name -- newDot doesn't keep it; the display and the promotion below key on it
+    trapPreview = { key = key, dot = dot }
+    trace(string.format("TRAP %s fired (target aura) %.1fs after placing: showing %d over %ss from now",
+        trap.name, now - trap.placedAt, trap.total, trap.duration))
+end
+
 -- Returns the target key when this hit was the first tick of a DoT that was waiting for it (so the display
 -- can flash now that the DoT shows), else nil.
 -- The same hit arrives once per unit token showing the mob (target, nameplateN, focus...) and must count once. But
@@ -1159,12 +1222,12 @@ end
 
 local function onHiddenAmountHit(key, unit, school)
     local dots = dotsByTarget[key]
-    if not dots then return end
+    if not dots and not armedTrap then return end
     local now = GetTime()
     local hit = hitRecord(key .. ":hidden:" .. school, unit, now)
     if not hit then return end
     local best, bestName, bestDistance, bestIndex
-    for name, dot in pairs(dots) do
+    for name, dot in pairs(dots or {}) do
         if not hit.fed[name] and dot.school == school then
             local distance, index = distanceToExpectedTick(dot, now)
             local window = dot.firstTickAt and TICK_MATCH_WINDOW_ANCHORED or TICK_MATCH_WINDOW
@@ -1180,6 +1243,30 @@ local function onHiddenAmountHit(key, unit, school)
         end
     end
     if not best then
+        -- The aura preview's own first tick (see startTrapPreview): if it lands on the preview's schedule, that was
+        -- the trap, and the DoT becomes real here with this tick counted as its first.
+        local preview = trapPreview
+        if preview and preview.key == key and preview.dot.school == school then
+            local reached = distanceToExpectedTick(preview.dot, now)
+            local dot = preview.dot
+            trapPreview = nil
+            if reached <= TICK_MATCH_WINDOW then
+                local placedAt = armedTrap and armedTrap.placedAt
+                armedTrap = nil
+                dotsByTarget[key] = dotsByTarget[key] or {}
+                dotsByTarget[key][dot.name] = dot
+                tallyCast(dot, 0) -- the meter can teach the trap's real tick size after the fight
+                dot.ticksSeen = 1
+                dot.lastTickAmount, dot.lastTickShape, dot.lastTickCrit = 0, 1, false
+                local tickIndex = anchorTick(dot, 1, now)
+                trace(string.format("TRAP %s: first tick %d/%d on %s, %.1fs after placing (aura preview confirmed)",
+                    dot.name, tickIndex, dot.totalTicks, unit, placedAt and (now - placedAt) or 0))
+                return key
+            end
+            -- Not on the preview's schedule: that aura wasn't this trap. Fall through to the tick-based start.
+        end
+        -- A trap springs in combat, where amounts are hidden: this is the only path its first tick can take.
+        if springTrapHidden(key, unit, school, now) then return key end
         trace(string.format("HIT (amount hidden) school %d on %s not matched to a DoT", school, unit))
         return
     end
@@ -1325,6 +1412,22 @@ local function onUnitCombat(unit, action, flag, amount, school)
                 end
             end
         end
+        -- The aura preview's first tick, when its amount is readable (trap fired out of combat).
+        local preview = trapPreview
+        if preview and preview.key == key and preview.dot.school == school then
+            local dot = preview.dot
+            local reached = distanceToExpectedTick(dot, now)
+            trapPreview = nil
+            if reached <= TICK_MATCH_WINDOW and plausibleTickAmount(dot, amount, isCrit, 1) then
+                armedTrap = nil
+                dotsByTarget[key] = dotsByTarget[key] or {}
+                dotsByTarget[key][dot.name] = dot
+                local tickIndex = recordTick(dot, amount, isCrit, 1, now)
+                trace(string.format("TRAP %s: first tick %d%s on %s (tick %d/%d, aura preview confirmed)",
+                    dot.name, amount, isCrit and " CRIT" or "", unit, tickIndex, dot.totalTicks))
+                return key
+            end
+        end
         -- Returned like a waiting DoT's first tick: the trap's DoT shows (and flashes) from now.
         if springTrap(key, unit, amount, school, isCrit, now) then return key end
         trace(string.format("HIT %d%s school %d on %s not matched to a DoT", amount, isCrit and " (crit)" or "",
@@ -1355,6 +1458,11 @@ end
 
 local function housekeep(now)
     resolveFinisherCheck(now)
+    -- An aura preview whose first tick never came was some other aura: drop it and leave the trap armed.
+    if trapPreview and now > trapPreview.dot.nextTickAt + TICK_MATCH_WINDOW + 0.5 then
+        trace("TRAP aura preview dropped: no first tick on its schedule")
+        trapPreview = nil
+    end
     for key, dots in pairs(dotsByTarget) do
         for name, dot in pairs(dots) do
             local late = (dot.ticksSeen == 0 and dot.travel) or 0
@@ -1398,8 +1506,9 @@ end
 local function dotBreakdown(key)
     local dots = key and dotsByTarget[key]
     local cast = key and castInProgress and castInProgress.key == key and castInProgress or nil
+    local preview = key and trapPreview and trapPreview.key == key and trapPreview.dot or nil
     local list = {}
-    if not dots and not cast then return list end
+    if not dots and not cast and not preview then return list end
     for name, dot in pairs(dots or {}) do
         if not isWaiting(dot) and not (cast and name == cast.name) then
             table.insert(list, { name = name, spellID = dot.spellID, school = dot.school, appliedAt = dot.appliedAt,
@@ -1410,6 +1519,11 @@ local function dotBreakdown(key)
         table.insert(list, { name = cast.name, spellID = cast.spellID, school = cast.dot.school,
             appliedAt = cast.dot.appliedAt, expiresAt = cast.dot.expiresAt, damage = remainingDamage(cast.dot),
             provisional = true })
+    end
+    if preview and not isWaiting(preview) then
+        table.insert(list, { name = preview.name or tostring(preview.spellID), spellID = preview.spellID,
+            school = preview.school, appliedAt = preview.appliedAt, expiresAt = preview.expiresAt,
+            damage = remainingDamage(preview), provisional = true })
     end
     table.sort(list, function(a, b) return a.appliedAt < b.appliedAt end)
     return list
@@ -1524,6 +1638,9 @@ frame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
 frame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
 frame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")   -- keeps a recent combo point reading as backup
 frame:RegisterEvent("UNIT_COMBAT")
+-- The target's auras are secret in combat, but the event itself still fires when one changes: that's what tells the
+-- addon an armed trap has fired, one tick interval before its first readable damage tick (see startTrapPreview).
+frame:RegisterUnitEvent("UNIT_AURA", "target")
 frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")   -- plate tokens stand in for secret GUIDs (see plateTokenFor)
 frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 -- Never register COMBAT_LOG_EVENT_UNFILTERED: Forever forbids it and shows a "blocked" popup.
@@ -1604,6 +1721,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 .. ": its DoTs were for the mob it showed before")
             ns.refresh()
         end
+
+    elseif event == "UNIT_AURA" then
+        startTrapPreview()
 
     elseif event == "UNIT_COMBAT" then
         local revealed = onUnitCombat(...)

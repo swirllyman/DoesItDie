@@ -106,6 +106,9 @@ local function dotColor(entry, mode)
     if (mode or db.dotColors) == "school" then
         return SCHOOL_COLORS[entry.school] or COLOR_BY_ID.white
     end
+    -- Never index the palette with a nil: an entry without a name (a new kind of provisional DoT, say) would error
+    -- here and take the whole display down with it.
+    entry.name = entry.name or tostring(entry.spellID)
     local index = paletteIndexByName[entry.name]
     if not index then
         index = (nextPaletteIndex - 1) % #DOT_PALETTE + 1
@@ -805,13 +808,23 @@ local function updateLayering(now)
         end
         return
     end
+    -- Levels and strata can be secret here (the visit above has to skip those frames), so the computed "top" can sit
+    -- below the real one and the marker ends up UNDER the health bar's fill: invisible until the bar is empty, i.e.
+    -- until the DoTs are nearly lethal. Go one strata up and keep a wide level margin to make sure we're on top. The
+    -- options window preview is already one strata above its panel, so it keeps its small offset.
+    local levelMargin = 0
+    if not previewHost then
+        if (STRATA_RANK[strata] or 0) < STRATA_RANK.HIGH then strata = "HIGH" end
+        levelMargin = 1000
+    end
     for i, frame in ipairs({ remainingBar, fillLayer, clipLayer, outlineLayer, sparkLayer, skullWindow, skullBar }) do
         frame:SetFrameStrata(strata)
-        frame:SetFrameLevel(level + i)
+        frame:SetFrameLevel(level + levelMargin + i)
     end
     if strata ~= lastStrata or level ~= lastLevel then
         lastStrata, lastLevel = strata, level
-        trace(string.format("LAYER target frame top is %s/%d; marker and skull placed above it", strata, level))
+        trace(string.format("LAYER target frame top is %s/%d; marker and skull placed above it at %s/%d",
+            strata, level, strata, level + levelMargin))
     end
 end
 
