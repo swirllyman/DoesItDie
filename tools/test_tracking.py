@@ -105,6 +105,7 @@ function api.reset(waitMode, estimateDuringCast)
     db.tickWeights, db.overThousandChecked = nil, nil
     db.waitFirstTick = waitMode or "off"
     lastBuilder, lastDotCast, lastOutcome, armedTrap, comboCheck, builderAtSend = nil, nil, nil, nil, nil, nil
+    trapPreview = nil
     for k in pairs(sentTargets) do sentTargets[k] = nil end
     db.estimateDuringCast = estimateDuringCast ~= false
     if dropCastInProgress then dropCastInProgress("reset") end
@@ -141,6 +142,8 @@ function api.ended(event, spellID, guid) if onCastEnded then onCastEnded(event, 
 function api.targetChanged() if dropCastInProgress then dropCastInProgress("target changed") end end
 function api.target(key) targetKey = key; resetComboCount() end
 function api.plate(unit, key) plates[unit] = key end
+-- UNIT_AURA on the target: some aura changed (which one is unreadable).
+function api.aura() startTrapPreview() end
 -- Hits and avoids on the target, or on another unit (e.g. a nameplate).
 function api.hit(amount, school, flag, unit) return onUnitCombat(unit or "target", "WOUND", flag or "", amount, school or 1) end
 function api.avoid(action, school, unit) onUnitCombat(unit or "target", action, "", 0, school or 1) end
@@ -649,6 +652,25 @@ sim.reset(); sim.learn(14, 200); sim.cast(14); sim.advance(5); sim.hit(138, 4)
 check("With a learned size, a hit far off it isn't the trap", sim.marker(), "0 dmg from 0 DoT(s)")
 sim.advance(1); sim.hit(205, 4)
 check("  one close to it is", sim.marker(), "820 dmg from 1 DoT(s)")
+
+# Player feedback (hunter, carrion bird): a phantom Immolation Trap marker (690 here) came and went on the mob being
+# fought, before and after Serpent Sting, minutes after the trap was placed. Any aura change on the target (the pet's
+# Demoralizing Screech debuff every 10s, Serpent Sting, Hunter's Mark) started the trap's aura preview, and a trap
+# that never sprang stayed armed past its minute.
+sim.reset(); sim.cast(14); sim.advance(5); sim.aura()
+check("Trap placed, an aura on the target 5s later: previewed as the trap firing", sim.marker(), "690 dmg from 1 DoT(s)")
+sim.reset(); sim.cast(14); sim.advance(211); sim.aura()
+check("  211s later (the trap only exists for 1 min): not the trap", sim.marker(), "0 dmg from 0 DoT(s)")
+sim.reset(); sim.cast(14); sim.advance(10); sim.aura(); sim.advance(5)
+check("A preview with no first tick on its schedule is dropped", sim.marker(), "0 dmg from 0 DoT(s)")
+sim.advance(5); sim.aura()
+check("  the next aura on that same mob (the screech again): no new preview", sim.marker(), "0 dmg from 0 DoT(s)")
+sim.target("other"); sim.aura()
+check("  an aura on another mob still previews", sim.marker(), "690 dmg from 1 DoT(s)")
+sim.reset(); sim.cast(14); sim.advance(10); sim.aura(); sim.advance(5); sim.advance(5); sim.hit(138, 4)
+check("  the trap's own first tick on the first mob still starts it", sim.marker(), "552 dmg from 1 DoT(s)")
+sim.reset(); sim.cast(14); sim.advance(10); sim.aura(); sim.advance(5); sim.cast(14); sim.advance(5); sim.aura()
+check("  a new trap may preview on that mob again", sim.marker(), "690 dmg from 1 DoT(s)")
 
 # PR #14 (Ironship). Two DoTs of one school ticking for the same amount in the same instant: two hits from one
 # token, not a copy. Previously the second was dropped as a duplicate and its DoT as "never ticked".

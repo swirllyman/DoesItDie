@@ -1313,8 +1313,15 @@ local function startTrapPreview()
     if not trap or trapPreview then return end
     local now = GetTime()
     if now - trap.placedAt < TRAP_AURA_MIN_AGE then return end
+    -- A trap that never sprang is gone after its lifetime; an aura after that is something else (seen minutes
+    -- later, from a pet's Demoralizing Screech, Serpent Sting...).
+    if now > trap.expiresAt then return end
     local key = unitKey("target")
     if not key then return end
+    -- This mob's aura changes already proved not to be the trap once (no first tick): the aura was something that
+    -- keeps changing on it (a pet's debuff every 10s), so don't flash the trap's damage on it again. The trap's
+    -- first tick still starts it there.
+    if trap.noPreview and trap.noPreview[key] then return end
     local dot = newDot(trap.spellID, trap.spellID, trap.name, trap.total, trap.school, trap.duration,
         trap.interval, now)
     dot.name = trap.name -- newDot doesn't keep it; the display and the promotion below key on it
@@ -1612,6 +1619,10 @@ local function housekeep(now)
     -- An aura preview whose first tick never came was some other aura: drop it and leave the trap armed.
     if trapPreview and now > trapPreview.dot.nextTickAt + TICK_MATCH_WINDOW + 0.5 then
         trace("TRAP aura preview dropped: no first tick on its schedule")
+        if armedTrap then
+            armedTrap.noPreview = armedTrap.noPreview or {}
+            armedTrap.noPreview[trapPreview.key] = true
+        end
         trapPreview = nil
     end
     for key, dots in pairs(dotsByTarget) do
