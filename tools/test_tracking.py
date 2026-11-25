@@ -44,7 +44,11 @@ function GetTime() return now end
 -- The target and the mobs behind visible nameplates (unit -> mob key).
 local targetKey, plates = "mob", {}
 local function unitKey(unit) if unit == "target" then return targetKey end return plates[unit] end
-function UnitExists(unit) return unitKey(unit) ~= nil end
+local petTargetSecret = false
+function UnitExists(unit)
+    if unit == "pettarget" and petTargetSecret then return true end
+    return unitKey(unit) ~= nil
+end
 -- A unit's name is its mob key, unless given one (two mobs with the same name).
 local names = {}
 function UnitName(unit) return names[unit] or unitKey(unit) end
@@ -92,11 +96,13 @@ local SPELLS = {
     [22] = { "Bane of Agony", "Afflicts the target with agony, causing 1,002 Shadow damage over 24 sec.  This damage is dealt slowly at first, and builds up as the Bane reaches its full duration." },
     [23] = { "Rip", "Finishing move that causes damage over time. 1 point : 420 damage over 12 sec. 5 points: 1,200 damage over 12 sec." },
     [24] = { "Immolate", "Burns the enemy for 1,050 Fire damage and then an additional 400 Fire damage over 15 sec." },
+    [25] = { "Scorpid Poison", "Stings an enemy for 10 Nature damage over 10 sec. Effect can stack up to 5 times." },
     [15] = { "Explosive Trap", "Place a Fire trap that explodes when an enemy approaches, causing 201 to 257 Fire damage and 330 additional Fire damage over 20 sec to all within 10 yards. Trap will exist for 1 min. Only one Fire trap can be active at a time." },
 }
 local function spellNameAndDescription(id) return SPELLS[id][1], SPELLS[id][2] end
 """ + chunk("local UPDATE_INTERVAL", "-- User options") + chunk(
-    "local function schoolFromWords", "---------------------------------------------------------------------------\n-- Settings") + """
+    "local function schoolFromWords", "---------------------------------------------------------------------------\n-- Settings") + chunk(
+    "local function onPetCast", "local petCastFrame") + """
 local api = {}
 function api.reset(waitMode, estimateDuringCast)
     for k in pairs(dotsByTarget) do dotsByTarget[k] = nil end
@@ -111,6 +117,7 @@ function api.reset(waitMode, estimateDuringCast)
     if dropCastInProgress then dropCastInProgress("reset") end
     resetComboCount()
     targetKey, plates, names, attackable, deadUnits, comboReading = "mob", {}, {}, {}, {}, nil
+    petTargetSecret = false
     mouseoverCast.enabled, mouseoverCast.key, mouseoverCast.held = false, "NONE", false
     ComboFrame = nil
     playerClass = "DRUID"
@@ -197,6 +204,18 @@ function api.provisional()
     return false
 end
 function api.log() return table.concat(log, "\\n") end
+-- A pet cast (UNIT_SPELLCAST_SUCCEEDED for "pet") on the mob behind "pettarget"; nil key: none readable.
+function api.petTarget(key) plates.pettarget = key; petTargetSecret = false end
+function api.petTargetUnreadable() plates.pettarget = nil; petTargetSecret = true end
+function api.petCast(id, name, desc)
+    if not name then local ok, n, d = pcall(spellNameAndDescription, id); name, desc = (ok and n or nil), (ok and d or nil) end
+    onPetCast(id, true, name, desc)
+end
+function api.petStacks()
+    local dots = dotsByTarget["mob"]
+    local dot = dots and dots["Scorpid Poison"]
+    return dot and (dot.stacks or 1) or 0
+end
 return api
 """
 
@@ -1009,6 +1028,20 @@ sim.reset(); sim.overThousandCheck(); sim.learn(24, 20); sim.cast(24)
 check("Over 999: an upfront hit over 999 (Immolate, 400 DoT) forgets too", sim.learned(24), None)
 sim.reset(); sim.learn(22, 7.5); sim.cast(22)
 check("Over 999: nothing forgotten without the check table (no ADDON_LOADED yet)", sim.learned(22), 7.5)
+
+# 4. Pet DoTs (Scorpid Poison): applications stack on the mob the pet is on, capped, and a refresh at the cap adds none.
+sim.reset(); sim.petTarget("mob"); sim.petCast(25)
+check("Scorpid Poison: one stack, 5 ticks of 2", sim.petStacks(), 1)
+check("  marker counts it", sim.marker(), "10 dmg from 1 DoT(s)")
+sim.petCast(25); sim.petCast(25)
+check("  two more applications: 3 stacks", sim.petStacks(), 3)
+sim.petCast(25); sim.petCast(25)
+check("  capped at 5", sim.petStacks(), 5)
+sim.petCast(25)
+check("  a refresh at the cap adds no stack", sim.petStacks(), 5)
+# The pet has a target but its key is unreadable (secret GUID, no plate): the cast is dropped, not put on another mob.
+sim.reset(); sim.petTargetUnreadable(); sim.petCast(25)
+check("Scorpid Poison with an unreadable pet target: dropped", sim.marker(), "0 dmg from 0 DoT(s)")
 
 print(f"\n{'all passed' if not failures else str(failures) + ' FAILED'}")
 if failures:

@@ -88,6 +88,7 @@ L.SPELL_IDS = {
     ["Immolation Trap"] = 13795, ["Explosive Trap"] = 13813, ["Wyvern Sting"] = 19386,
     ["Serpent Sting"] = 1978, ["Pyroblast"] = 11366, ["Corruption"] = 172,
     ["Lacerate"] = 1328617, -- Forever's own ID (STACKING_DOTS; not in Classic Era)
+    ["Scorpid Poison"] = 24583, -- pet ability (STACKING_DOTS); rank varies with the pet
 }
 
 -- Gives `alias` the entry `englishName` has, in every table that has one and doesn't know `alias` yet.

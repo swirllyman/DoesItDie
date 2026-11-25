@@ -225,17 +225,18 @@ whether its first tick lands one interval after springing are assumed from Class
 
 Known limitations:
 
-- Only the **player's** DoTs are tracked, plus party members' with "Share DoTs with party" on, when they run
-  DoesItDie too, and only in the open world. A party member's DoT shows about a second late (message delay plus the
+- Only the **player's** DoTs (and the hunter pet's Scorpid Poison) are tracked, plus party members' with "Share
+  DoTs with party" on, when they run DoesItDie too, and only in the open world. A party member's DoT shows about a second late (message delay plus the
   0.2s check), and what they send is their own estimate.
 - Immolation Trap: if the trapped mob's first tick isn't seen (not target, focus or a visible nameplate), a later
   tick is taken as tick 1 and that trap's estimate runs high. Someone else's Fire tick of a similar size while the
   trap is armed can also be taken for it.
-- Proc DoTs with no cast (Deep Wounds, Ignite, poisons) aren't tracked. Their ticks show up as unmatched hits.
+- Proc DoTs with no cast (Deep Wounds, Ignite, rogue poisons) aren't tracked. Their ticks show up as unmatched
+  hits. Pet DoTs are: the pet's casts come on their own frame (see `onPetCast`).
 - Uneven DoTs need a tick shape in `TICK_SHAPES` (Bane/Curse of Agony: 4 ticks at 0.5x, 4 at 1x, 4 at 1.5x the
   average, confirmed in-game); anything uneven that isn't listed is treated as even.
-- Stacking DoTs (`STACKING_DOTS`: the druid's Lacerate, up to 5; Forever's hunter Lacerate doesn't stack, hence the
-  class check): a recast adds a stack on the running tick rhythm and
+- Stacking DoTs (`STACKING_DOTS`: the druid's Lacerate, up to 5; the hunter pet's Scorpid Poison, up to 5, 2 s
+  ticks; Forever's hunter Lacerate doesn't stack, hence the class check): a recast adds a stack on the running tick rhythm and
   refreshes the duration from the latest tick slot (`stackOnto`; both seen in-game, log 2026-11-13). Each tick
   is assumed to be one application's tick times the stacks (unverified on Forever: its tooltip's "plus 10% weapon
   damage per existing application" may mean something else); sizes are learned and tallied per application (the

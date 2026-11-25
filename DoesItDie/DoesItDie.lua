@@ -45,6 +45,7 @@ local KNOWN_TICK_INTERVALS = {
     ["Holy Fire"] = 2,
     ["Rip"] = 2,
     ["Rupture"] = 2,
+    ["Scorpid Poison"] = 2,
 }
 
 -- DoTs whose ticks aren't even: each tick is the average tick times its factor (factors average 1, so the
@@ -84,7 +85,7 @@ local TRAP_DOTS = { ["Immolation Trap"] = true }
 -- tick and dropped Lacerate as "never ticked". Each tick is assumed to be one application's tick times the stacks
 -- (as in TBC; unverified on Forever); learned sizes are per application (see stackOnto, tickShape).
 -- Forever's hunters have a Lacerate too (one bleed over 21 sec, no stacks), hence the class: theirs refreshes.
-local STACKING_DOTS = { ["Lacerate"] = { cap = 5, class = "DRUID" } }
+local STACKING_DOTS = { ["Lacerate"] = { cap = 5, class = "DRUID" }, ["Scorpid Poison"] = { cap = 5 } }
 
 -- The name-keyed tables also answer to the names of every registered language, and on ADDON_LOADED to the names
 -- this client reports for them (Locale.lua).
@@ -1807,6 +1808,42 @@ end
 ---------------------------------------------------------------------------
 -- Events
 ---------------------------------------------------------------------------
+
+-- Pet DoTs (Scorpid Poison): cast by the pet, so the player cast path never sees them. Each application stacks.
+local function onPetCast(spellID, ok, name, desc)
+    local stacking = ok and name and not isSecret(name) and STACKING_DOTS[name]
+    if not stacking or type(desc) ~= "string" or isSecret(desc) then return end
+    local total, school, duration, statedInterval = parseDot(desc, 1)
+    if not total then return end
+    -- The pet's target names the mob; without a readable key (secret GUID and no plate) skip rather than put the
+    -- DoT on a different mob than the one poisoned.
+    local key
+    if UnitExists("pettarget") then key = unitKey("pettarget") else key = unitKey("target") end
+    if not key then return end
+    local now = GetTime()
+    dotsByTarget[key] = dotsByTarget[key] or {}
+    local previous = dotsByTarget[key][name]
+    local dot = newDot(spellID, spellID, name, total, school, duration, statedInterval, now)
+    dot.name = name
+    if previous then stackOnto(dot, previous, stacking.cap) end
+    dotsByTarget[key][name] = dot
+    -- Pet casts don't go through the avoid path (avoidJustBefore/removeAvoidedDot): a dodged poison still adds a
+    -- stack, so the estimate errs high until two missed ticks drop it.
+    tallyCast(dot, parseDirectPart(desc))
+    dot.unsure = not db.ticks[spellID]
+    if not previous or (previous.stacks or 1) < (dot.stacks or 1) then
+        trace(string.format("PETDOT %s (id %d): stacks %d/%d", name, spellID, dot.stacks or 1, stacking.cap))
+    end
+end
+
+-- The pet's casts come on their own frame: RegisterUnitEvent replaces the filter an event already has.
+local petCastFrame = CreateFrame("Frame")
+petCastFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "pet")
+petCastFrame:SetScript("OnEvent", function(_, _, _, _, spellID)
+    if isSecret(spellID) then return end
+    local ok, name, desc = pcall(spellNameAndDescription, spellID)
+    onPetCast(spellID, ok, name, desc)
+end)
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
