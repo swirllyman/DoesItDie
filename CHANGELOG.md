@@ -1,5 +1,9 @@
 # DoesItDie
 
+## Unreleased
+
+- **Hunters: no more phantom Immolation Trap damage on the marker.** After placing an Immolation Trap, any new debuff on your target (your pet's Demoralizing Screech, your own Serpent Sting) could be taken for the trap going off, so its damage appeared on the mob you were fighting and vanished a few seconds later, again and again, even minutes after the trap was gone. Now that only happens within the trap's minute and at most once per mob, and the trap's own first tick still starts it as before.
+
 ## v0.10.1
 
 - **The marker and kill icon show on the target frame again.** In v0.10.0 they could end up drawn underneath Blizzard's target frame, so for many players nothing showed (or only sometimes). They're back where v0.9.4 put them, and hide while the world map is open so they don't cover it. Same for the focus frame. Thanks to stoned301 and Slator for the reports.

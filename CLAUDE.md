@@ -92,6 +92,9 @@ Consequences for the design:
    **Immolation Trap** (`TRAP_DOTS`) only arms on cast: the trap casts the DoT when it springs, with no event for
    the player. The first unmatched Fire hit of a plausible size on any mob, at least one tick after placing and
    within the trap's minute, becomes its tick 1 (`springTrap`). Placing another Fire trap disarms it.
+   A `UNIT_AURA` on the target while it's armed previews it there (`startTrapPreview`), dropped when no first tick
+   follows. Only within the trap's minute, and once per mob per trap: a pet's debuff (Demoralizing Screech every
+   10s) otherwise flashed the trap's damage on the mob being fought.
 2. **Combo points** are secret, so they're **counted** from builders ("Awards N combo point"), with dodges and
    misses taken back and resets on finishers and target changes (which also clear the cached reading). When the
    APIs give no number, Blizzard's combo point display is read (`displayedComboPoints`, PR #14; unverified
